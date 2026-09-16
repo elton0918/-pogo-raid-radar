@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+TAIPEI_TZ = timezone(timedelta(hours=8))
 from typing import List, Dict, Any, Optional
 from app.config import settings
 from app.services.distance import calculate_haversine_distance
@@ -157,7 +159,7 @@ class RaidService:
         max_radius_km: float
     ) -> List[Dict[str, Any]]:
         """過濾半徑內、名稱匹配之團體戰，並計算剩餘時間與距離排序"""
-        now = datetime.now()
+        now = datetime.now(TAIPEI_TZ)
         results = []
         seen_gyms = set()
 
