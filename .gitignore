@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.env
+
+# Testing & Logs
+.pytest_cache/
+*.log
+webhook_events.log
+
+# Large binaries & OS files
+cloudflared.exe
+*.exe
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Scratch & temporary
+scratch/
+test_script.py

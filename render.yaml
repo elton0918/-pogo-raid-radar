@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pogo-raid-radar
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: DEFAULT_SEARCH_RADIUS_KM
+        value: "5.0"
+      - key: CAMPFIRE_FALLBACK_TO_MOCK
+        value: "true"
