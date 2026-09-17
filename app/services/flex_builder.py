@@ -524,9 +524,8 @@ def create_today_raids_carousel_flex(today_raids_data: Dict[str, Any]) -> dict:
 
         if len(bosses) == 1:
             bubbles.append(_build_single_boss_bubble(bosses[0], cat))
-        elif len(bosses) <= 3:
-            bubbles.append(_build_list_bubble(bosses, cat))
         else:
+            # 2 隻以上（包含 3 隻空一格、4 隻滿格或更多分頁）：全面套用 2x2 雙欄九宮格佈局
             chunk_size = 4
             chunks = [bosses[i:i + chunk_size] for i in range(0, len(bosses), chunk_size)]
             for page_idx, chunk in enumerate(chunks):
