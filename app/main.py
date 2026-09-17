@@ -17,7 +17,8 @@ from linebot.v3.messaging import (
     FlexContainer,
     QuickReply,
     QuickReplyItem,
-    LocationAction
+    LocationAction,
+    MessageAction
 )
 from linebot.v3.webhooks import (
     MessageEvent,
@@ -28,7 +29,12 @@ from linebot.v3.webhooks import (
 from app.config import settings
 from app.services.raid_service import raid_service
 from app.services.campfire_service import campfire_service
-from app.services.flex_builder import create_raid_carousel_flex
+from app.services.flex_builder import (
+    create_raid_carousel_flex,
+    create_today_raids_carousel_flex,
+    format_today_raids_text
+)
+from app.services.today_raids_service import today_raids_service
 from app.services.subscription_service import subscription_service
 from app.services.notification_service import notification_service
 from app.data.pokemon_data import get_pokemon_info
@@ -134,6 +140,13 @@ def test_search_api(
         "results": raids
     }
 
+@app.get("/raids/today")
+def get_today_raids_api(force_refresh: bool = Query(False, description="是否強制重新整理快取")):
+    """
+    查詢今日/現行團體戰頭目一覽 (包含 5星傳說、超級、暗影、3星與1星團體戰)
+    """
+    return today_raids_service.get_today_raids(force_refresh=force_refresh)
+
 @app.post("/callback")
 async def line_webhook(request: Request):
     """
@@ -174,6 +187,8 @@ def handle_text(event: MessageEvent):
             if user_text.lower() in ["幫助", "功能", "指令", "說明", "選單", "menu", "help"]:
                 help_text = (
                     "🤖 【寶可夢 5km 團體戰雷達】功能列表\n\n"
+                    "🔥 團體戰頭目一覽：\n"
+                    "輸入 `團體戰` 或 `今日團體戰`，即時查看最新 5星傳奇、超級與暗影團體戰名單、CP 及屬性。\n\n"
                     "📍 尋找團體戰：\n"
                     "直接輸入寶可夢名稱（例如 `蒼響`），機器人會提示您發送「位置資訊」，並找出方圓 5km 內的團體戰。\n\n"
                     "📢 社群即時回報：\n"
@@ -328,8 +343,75 @@ def handle_text(event: MessageEvent):
                     f.write(f"[HANDLE_TEXT QUERY SUCCESS] reply sent for '{pokemon_name}': {res}\n")
                 return
 
-            # 2. 一般搜尋指令：記錄目標寶可夢並提示發送定位
-            user_query_cache[user_id] = user_text
+            # 2. 今日團體戰頭目一覽查詢指令
+            # 支援「團體戰」、「團戰」、「今日團體戰」、「今天團體戰」、「今日頭目」、「團體戰名單」、「團體戰列表」、「現行團體戰」、「今天團體戰有哪些寶可夢」等
+            clean_text = user_text.lower().strip()
+            is_today_raids_query = bool(
+                clean_text in [
+                    "團體戰", "團戰", "頭目", "團體戰列表", "頭目列表", "團戰列表",
+                    "今日團體戰", "今天團體戰", "團體戰名單", "頭目名單", "現行團體戰",
+                    "現行頭目", "今日頭目", "今天頭目", "目前團體戰", "目前頭目",
+                    "raid", "raids", "boss", "bosses", "raid boss", "raid bosses"
+                ] or
+                re.search(r"(今天|今日|現行|目前|本期|本週|這週).*(團體戰|團戰|頭目|boss|蛋)", clean_text) or
+                re.search(r"(團體戰|團戰|頭目|boss).*(名單|一覽|清單|表|列表|有哪些|有什麼|有誰)", clean_text) or
+                re.search(r"^(有哪些|有什麼|查|查詢|看).*(團體戰|團戰|頭目|boss)$", clean_text)
+            )
+
+            if is_today_raids_query:
+                today_raids = today_raids_service.get_today_raids()
+
+                # 建立主要頭目的快捷 Quick Reply 按鈕
+                quick_reply_items = [
+                    QuickReplyItem(action=LocationAction(label="📍 傳送定位搜尋5km"))
+                ]
+                for cat in today_raids.get("categories", []):
+                    bosses = cat.get("bosses", [])
+                    if bosses:
+                        b_name = bosses[0]["search_name"]
+                        if len(quick_reply_items) < 8 and not any(getattr(item.action, "text", "") == b_name for item in quick_reply_items):
+                            quick_reply_items.append(
+                                QuickReplyItem(action=MessageAction(label=f"🔍 搜 {b_name[:8]}", text=b_name))
+                            )
+
+                quick_reply = QuickReply(items=quick_reply_items)
+
+                # 優先準備精美 Flex Message 輪播卡片，若組裝失敗則優雅退回純文字
+                messages_to_send = []
+                try:
+                    flex_content = create_today_raids_carousel_flex(today_raids)
+                    flex_container = FlexContainer.from_dict(flex_content)
+                    messages_to_send = [
+                        FlexMessage(
+                            alt_text=f"🔥 【今日團體戰頭目一覽】({today_raids.get('updated_at', '')[:10]})",
+                            contents=flex_container,
+                            quick_reply=quick_reply
+                        )
+                    ]
+                except Exception as flex_err:
+                    fallback_text = format_today_raids_text(today_raids)
+                    messages_to_send = [
+                        TextMessage(text=fallback_text, quick_reply=quick_reply)
+                    ]
+
+                res = line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=messages_to_send
+                    )
+                )
+                with open("webhook_events.log", "a", encoding="utf-8") as f:
+                    f.write(f"[HANDLE_TEXT TODAY RAIDS SUCCESS] reply sent: {res}\n")
+                return
+
+            # 3. 一般搜尋指令：記錄目標寶可夢並提示發送定位
+            target_pokemon = user_text
+            for prefix in ["團體戰", "團戰", "找", "搜尋", "定位"]:
+                if target_pokemon.startswith(prefix) and len(target_pokemon) > len(prefix):
+                    target_pokemon = target_pokemon[len(prefix):].strip()
+                    break
+
+            user_query_cache[user_id] = target_pokemon
 
             location_quick_reply = QuickReply(
                 items=[
@@ -340,7 +422,7 @@ def handle_text(event: MessageEvent):
             )
 
             reply_text = (
-                f"🎯 已鎖定搜尋目標：【{user_text}】\n\n"
+                f"🎯 已鎖定搜尋目標：【{target_pokemon}】\n\n"
                 f"請點擊下方按鈕或左下角「＋」發送您的【位置資訊】，"
                 f"我將為您連線 Niantic Campfire 掃描方圓 {settings.DEFAULT_SEARCH_RADIUS_KM} 公里內所有正在進行與即將開蛋的團體戰！"
             )
