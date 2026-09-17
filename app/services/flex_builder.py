@@ -142,10 +142,377 @@ def create_raid_carousel_flex(raids: List[Dict[str, Any]], target_pokemon: str =
         "contents": bubbles
     }
 
+def _build_single_boss_bubble(b: Dict[str, Any], cat: Dict[str, Any]) -> dict:
+    """1 隻頭目：滿版精美專屬 Hero 卡片"""
+    tier_title = cat.get("tier_title", "團體戰")
+    badge = cat.get("badge", "RAID")
+    theme_color = cat.get("color", "#1E3A8A")
+    shiny_tag = " ✨" if b.get("shiny_available") else ""
+
+    stats_rows = [
+        {
+            "type": "box",
+            "layout": "baseline",
+            "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "🔹 屬性", "color": "#9CA3AF", "size": "xs", "flex": 3},
+                {"type": "text", "text": " / ".join(b.get("types", [])) or "一般", "wrap": True, "color": "#1F2937", "size": "xs", "weight": "bold", "flex": 7}
+            ]
+        }
+    ]
+
+    if b.get("cp_range"):
+        stats_rows.append({
+            "type": "box",
+            "layout": "baseline",
+            "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "💯 一般CP", "color": "#9CA3AF", "size": "xs", "flex": 3},
+                {"type": "text", "text": b["cp_range"], "wrap": True, "color": "#059669", "size": "xs", "weight": "bold", "flex": 7}
+            ]
+        })
+
+    if b.get("boosted_cp"):
+        weather_str = f" ({' / '.join(b['weather_boost'])})" if b.get("weather_boost") else ""
+        stats_rows.append({
+            "type": "box",
+            "layout": "baseline",
+            "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "⚡ 加成CP", "color": "#9CA3AF", "size": "xs", "flex": 3},
+                {"type": "text", "text": f"{b['boosted_cp']}{weather_str}", "wrap": True, "color": "#DC2626", "size": "xs", "weight": "bold", "flex": 7}
+            ]
+        })
+
+    label_search = f"📍 搜尋 5km【{b['search_name']}】"[:20]
+    label_guide = f"📊 討伐指南【{b['search_name']}】"[:20]
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": theme_color,
+            "paddingTop": "10px",
+            "paddingBottom": "10px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"【{badge}】{tier_title}",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "xs",
+                    "align": "center"
+                }
+            ]
+        },
+        "hero": {
+            "type": "image",
+            "url": b["image_url"],
+            "size": "md",
+            "aspectRatio": "1:1",
+            "aspectMode": "fit",
+            "backgroundColor": "#F9FAFB"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"{b['name_zh']}{shiny_tag}",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#111827",
+                    "align": "center",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": b["name_en"],
+                    "size": "xxs",
+                    "color": "#6B7280",
+                    "align": "center"
+                },
+                {
+                    "type": "separator",
+                    "margin": "sm"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "sm",
+                    "spacing": "xs",
+                    "contents": stats_rows
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": theme_color,
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": label_search,
+                        "text": b["search_name"]
+                    }
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": label_guide,
+                        "text": f"查詢 {b['search_name']}"
+                    }
+                }
+            ]
+        }
+    }
+
+def _build_list_bubble(bosses: List[Dict[str, Any]], cat: Dict[str, Any]) -> dict:
+    """2~3 隻頭目：清爽極簡單欄卡片（無多餘按鈕，全列可點）"""
+    tier_title = cat.get("tier_title", "團體戰")
+    badge = cat.get("badge", "RAID")
+    theme_color = cat.get("color", "#1E3A8A")
+
+    boss_rows = []
+    for b in bosses:
+        shiny_tag = " ✨" if b.get("shiny_available") else ""
+        types_str = "/".join(b.get("types", [])) or "一般"
+        cp_str = f"CP {b['cp_range']}" if b.get("cp_range") else ""
+        sub_info = f"{types_str}  •  {cp_str}" if cp_str else types_str
+
+        boss_rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "md",
+            "alignItems": "center",
+            "paddingAll": "8px",
+            "backgroundColor": "#F8FAFC",
+            "cornerRadius": "md",
+            "margin": "sm",
+            "action": {
+                "type": "message",
+                "label": b["search_name"][:20],
+                "text": b["search_name"]
+            },
+            "contents": [
+                {
+                    "type": "image",
+                    "url": b["image_url"],
+                    "size": "xs",
+                    "aspectRatio": "1:1",
+                    "aspectMode": "fit",
+                    "flex": 2
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 8,
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": f"{b['name_zh']}{shiny_tag}",
+                            "size": "sm",
+                            "weight": "bold",
+                            "color": "#0F172A",
+                            "wrap": True
+                        },
+                        {
+                            "type": "text",
+                            "text": sub_info,
+                            "size": "xxs",
+                            "color": "#64748B"
+                        }
+                    ]
+                },
+                {
+                    "type": "text",
+                    "text": "🔍",
+                    "size": "xs",
+                    "color": "#94A3B8",
+                    "flex": 1,
+                    "align": "end"
+                }
+            ]
+        })
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": theme_color,
+            "paddingTop": "10px",
+            "paddingBottom": "10px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"【{badge}】{tier_title}",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "xs",
+                    "align": "center"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "paddingAll": "10px",
+            "contents": boss_rows
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "👆 點擊任一頭目即可搜尋 5km 道館",
+                    "size": "xxs",
+                    "color": "#94A3B8",
+                    "align": "center"
+                }
+            ]
+        }
+    }
+
+def _build_grid_bubble(chunk: List[Dict[str, Any]], cat: Dict[str, Any], page_suffix: str = "") -> dict:
+    """4 隻以上頭目：2x2 雙欄宮格佈局（每頁最多4隻，整齊清爽不擁擠）"""
+    tier_title = cat.get("tier_title", "團體戰")
+    badge = cat.get("badge", "RAID")
+    theme_color = cat.get("color", "#1E3A8A")
+
+    grid_rows = []
+    for i in range(0, len(chunk), 2):
+        pair = chunk[i:i+2]
+        row_contents = []
+        for b in pair:
+            shiny_tag = " ✨" if b.get("shiny_available") else ""
+            types_str = "/".join(b.get("types", [])) or "一般"
+            cp_str = f"CP {b['cp_range']}" if b.get("cp_range") else ""
+            tile = {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "alignItems": "center",
+                "paddingAll": "8px",
+                "backgroundColor": "#F8FAFC",
+                "cornerRadius": "md",
+                "action": {
+                    "type": "message",
+                    "label": b["search_name"][:20],
+                    "text": b["search_name"]
+                },
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": b["image_url"],
+                        "size": "sm",
+                        "aspectRatio": "1:1",
+                        "aspectMode": "fit"
+                    },
+                    {
+                        "type": "text",
+                        "text": f"{b['name_zh']}{shiny_tag}",
+                        "size": "xs",
+                        "weight": "bold",
+                        "color": "#0F172A",
+                        "align": "center",
+                        "wrap": True,
+                        "margin": "xs"
+                    },
+                    {
+                        "type": "text",
+                        "text": types_str,
+                        "size": "xxs",
+                        "color": "#64748B",
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "text": cp_str,
+                        "size": "xxs",
+                        "color": "#059669",
+                        "weight": "bold",
+                        "align": "center"
+                    }
+                ]
+            }
+            row_contents.append(tile)
+
+        if len(row_contents) == 1:
+            row_contents.append({"type": "box", "layout": "vertical", "flex": 1, "contents": []})
+
+        grid_rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "margin": "sm",
+            "contents": row_contents
+        })
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": theme_color,
+            "paddingTop": "10px",
+            "paddingBottom": "10px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"【{badge}】{tier_title}{page_suffix}",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "xs",
+                    "align": "center"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "paddingAll": "10px",
+            "contents": grid_rows
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "👆 點擊任一方格即可搜尋 5km 道館",
+                    "size": "xxs",
+                    "color": "#94A3B8",
+                    "align": "center"
+                }
+            ]
+        }
+    }
+
 def create_today_raids_carousel_flex(today_raids_data: Dict[str, Any]) -> dict:
     """
     將今日團體戰分組資訊轉換為 LINE Flex Message 輪播卡片 (Carousel)
-    支援單頭目大圖卡與多頭目列表卡
+    自動適配：
+      - 1 隻：專屬大圖 Hero 卡
+      - 2~3 隻：簡約條列式單欄卡
+      - 4 隻以上：2x2 雙欄九宮格（每頁最多4隻，整齊清爽不擁擠）
     """
     categories = today_raids_data.get("categories", [])
     bubbles = []
@@ -155,238 +522,16 @@ def create_today_raids_carousel_flex(today_raids_data: Dict[str, Any]) -> dict:
         if not bosses:
             continue
 
-        tier_title = cat.get("tier_title", "團體戰")
-        badge = cat.get("badge", "RAID")
-        theme_color = cat.get("color", "#1E3A8A")
-
-        # 1. 單頭目精美專屬卡 (例如 5星傳說、超級、5星暗影)
         if len(bosses) == 1:
-            b = bosses[0]
-            shiny_tag = " ✨" if b.get("shiny_available") else ""
-
-            stats_rows = [
-                {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "🔹 屬性", "color": "#9CA3AF", "size": "xs", "flex": 3},
-                        {"type": "text", "text": " / ".join(b.get("types", [])) or "一般", "wrap": True, "color": "#1F2937", "size": "xs", "weight": "bold", "flex": 7}
-                    ]
-                }
-            ]
-
-            if b.get("cp_range"):
-                stats_rows.append({
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "💯 一般CP", "color": "#9CA3AF", "size": "xs", "flex": 3},
-                        {"type": "text", "text": b["cp_range"], "wrap": True, "color": "#059669", "size": "xs", "weight": "bold", "flex": 7}
-                    ]
-                })
-
-            if b.get("boosted_cp"):
-                weather_str = f" ({' / '.join(b['weather_boost'])})" if b.get("weather_boost") else ""
-                stats_rows.append({
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "⚡ 加成CP", "color": "#9CA3AF", "size": "xs", "flex": 3},
-                        {"type": "text", "text": f"{b['boosted_cp']}{weather_str}", "wrap": True, "color": "#DC2626", "size": "xs", "weight": "bold", "flex": 7}
-                    ]
-                })
-
-            bubble = {
-                "type": "bubble",
-                "size": "kilo",
-                "header": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "backgroundColor": theme_color,
-                    "paddingTop": "10px",
-                    "paddingBottom": "10px",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": f"【{badge}】{tier_title}",
-                            "color": "#FFFFFF",
-                            "weight": "bold",
-                            "size": "xs",
-                            "align": "center"
-                        }
-                    ]
-                },
-                "hero": {
-                    "type": "image",
-                    "url": b["image_url"],
-                    "size": "md",
-                    "aspectRatio": "1:1",
-                    "aspectMode": "fit",
-                    "backgroundColor": "#F9FAFB"
-                },
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "spacing": "sm",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": f"{b['name_zh']}{shiny_tag}",
-                            "weight": "bold",
-                            "size": "lg",
-                            "color": "#111827",
-                            "align": "center",
-                            "wrap": True
-                        },
-                        {
-                            "type": "text",
-                            "text": b["name_en"],
-                            "size": "xxs",
-                            "color": "#6B7280",
-                            "align": "center"
-                        },
-                        {
-                            "type": "separator",
-                            "margin": "sm"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "margin": "sm",
-                            "spacing": "xs",
-                            "contents": stats_rows
-                        }
-                    ]
-                },
-                "footer": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "spacing": "xs",
-                    "contents": [
-                        {
-                            "type": "button",
-                            "style": "primary",
-                            "color": theme_color,
-                            "height": "sm",
-                            "action": {
-                                "type": "message",
-                                "label": f"📍 搜尋 5km【{b['search_name']}】",
-                                "text": b["search_name"]
-                            }
-                        },
-                        {
-                            "type": "button",
-                            "style": "secondary",
-                            "height": "sm",
-                            "action": {
-                                "type": "message",
-                                "label": f"📊 討伐指南與弱點",
-                                "text": f"查詢 {b['search_name']}"
-                            }
-                        }
-                    ]
-                }
-            }
-            bubbles.append(bubble)
+            bubbles.append(_build_single_boss_bubble(bosses[0], cat))
+        elif len(bosses) <= 3:
+            bubbles.append(_build_list_bubble(bosses, cat))
         else:
-            # 2. 多頭目集合卡 (例如 3星/1星暗影)
-            boss_rows = []
-            for b in bosses[:5]:
-                shiny_tag = " ✨" if b.get("shiny_available") else ""
-                boss_rows.append({
-                    "type": "box",
-                    "layout": "horizontal",
-                    "spacing": "md",
-                    "alignItems": "center",
-                    "margin": "sm",
-                    "contents": [
-                        {
-                            "type": "image",
-                            "url": b["image_url"],
-                            "size": "xxs",
-                            "aspectRatio": "1:1",
-                            "aspectMode": "fit",
-                            "flex": 2
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "flex": 6,
-                            "contents": [
-                                {
-                                    "type": "text",
-                                    "text": f"{b['name_zh']}{shiny_tag}",
-                                    "size": "xs",
-                                    "weight": "bold",
-                                    "color": "#111827",
-                                    "wrap": True
-                                },
-                                {
-                                    "type": "text",
-                                    "text": f"CP {b.get('cp_range', '未知')} • {'/'.join(b.get('types', []))}",
-                                    "size": "xxs",
-                                    "color": "#6B7280"
-                                }
-                            ]
-                        },
-                        {
-                            "type": "button",
-                            "style": "secondary",
-                            "height": "sm",
-                            "flex": 3,
-                            "action": {
-                                "type": "message",
-                                "label": "搜尋",
-                                "text": b["search_name"]
-                            }
-                        }
-                    ]
-                })
-
-            bubble = {
-                "type": "bubble",
-                "size": "kilo",
-                "header": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "backgroundColor": theme_color,
-                    "paddingTop": "10px",
-                    "paddingBottom": "10px",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": f"【{badge}】{tier_title}",
-                            "color": "#FFFFFF",
-                            "weight": "bold",
-                            "size": "xs",
-                            "align": "center"
-                        }
-                    ]
-                },
-                "body": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "spacing": "xs",
-                    "contents": boss_rows
-                },
-                "footer": {
-                    "type": "box",
-                    "layout": "vertical",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": "💡 點選按鈕或輸入名稱即可搜尋附近道館",
-                            "size": "xxs",
-                            "color": "#9CA3AF",
-                            "align": "center"
-                        }
-                    ]
-                }
-            }
-            bubbles.append(bubble)
+            chunk_size = 4
+            chunks = [bosses[i:i + chunk_size] for i in range(0, len(bosses), chunk_size)]
+            for page_idx, chunk in enumerate(chunks):
+                page_suffix = f" ({page_idx + 1}/{len(chunks)})" if len(chunks) > 1 else ""
+                bubbles.append(_build_grid_bubble(chunk, cat, page_suffix))
 
     return {
         "type": "carousel",
