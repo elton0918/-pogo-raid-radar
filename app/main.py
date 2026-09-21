@@ -16,6 +16,7 @@ from linebot.v3.messaging import (
     ApiClient,
     MessagingApi,
     ReplyMessageRequest,
+    PushMessageRequest,
     TextMessage,
     FlexMessage,
     FlexContainer,
@@ -51,6 +52,16 @@ from app.data.pokemon_data import get_pokemon_info
 logger = logging.getLogger(__name__)
 TAIPEI_TZ = timezone(timedelta(hours=8))
 
+async def _prewarm_caches():
+    """在背景預載 LeekDuck 團體戰與活動快取，避免第一次使用者查詢時延遲或超時"""
+    try:
+        logger.info("🔥 正在預載 LeekDuck 團體戰與活動快取...")
+        await asyncio.to_thread(today_raids_service.get_today_raids)
+        await asyncio.to_thread(events_service.get_events)
+        logger.info("✅ 團體戰與活動快取預載完成！")
+    except Exception as e:
+        logger.warning(f"快取預載異常 (非致命): {e}")
+
 async def daily_digest_scheduler():
     """
     每天早上 08:00 (台灣時間 UTC+8) 自動執行晨報推播的背景排程
@@ -84,8 +95,10 @@ async def daily_digest_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(daily_digest_scheduler())
+    prewarm_task = asyncio.create_task(_prewarm_caches())
     yield
     task.cancel()
+    prewarm_task.cancel()
     try:
         await task
     except asyncio.CancelledError:
@@ -233,6 +246,50 @@ def trigger_daily_digest_api(
     result = notification_service.send_daily_digest(user_ids=target_users)
     return result
 
+@app.get("/debug/webhook-log")
+def get_webhook_log(lines: int = Query(50, description="讀取最新幾行日誌")):
+    """讀取伺服器上最新的 webhook_events.log 便於除錯"""
+    try:
+        with open("webhook_events.log", "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            return {"total_lines": len(all_lines), "recent_lines": all_lines[-lines:]}
+    except Exception as e:
+        return {"error": str(e)}
+
+def safe_reply(
+    line_bot_api: MessagingApi,
+    event: MessageEvent,
+    messages: list
+):
+    """
+    安全回覆訊息：
+    1. 優先嘗試 reply_message (免費且符合即時對話規範)。
+    2. 若因 Render 免費實例冷啟動喚醒耗時 (>30s) 導致 reply_token 過期失效 (400 Invalid reply token)，
+       自動無縫降級為 push_message (直接傳送到 user_id)，確保使用者絕對能收到回覆，絕不出現「沒反應」！
+    """
+    try:
+        return line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=messages
+            )
+        )
+    except Exception as reply_err:
+        logger.warning(f"[safe_reply] reply_message 失敗 ({reply_err})，檢查是否可降級 push_message")
+        user_id = getattr(getattr(event, "source", None), "user_id", None)
+        if user_id:
+            try:
+                logger.info(f"[safe_reply] 自動降級為 push_message 發送給使用者 {user_id}")
+                return line_bot_api.push_message(
+                    PushMessageRequest(
+                        to=user_id,
+                        messages=messages
+                    )
+                )
+            except Exception as push_err:
+                logger.error(f"[safe_reply] 降級 push_message 亦失敗: {push_err}")
+        raise reply_err
+
 @app.post("/callback")
 async def line_webhook(request: Request):
     """
@@ -289,12 +346,7 @@ def handle_text(event: MessageEvent):
                     "輸入 `訂閱 蒼響`，當有人回報時您會第一時間收到推播！\n"
                     "（其他管理指令：`取消訂閱 蒼響`、`我的訂閱`）"
                 )
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=help_text)]
-                    )
-                )
+                safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                 return
 
             # 1. 支援社群即時回報指令：格式例如「回報 蒼響 大安森林公園」或「回報」
@@ -326,12 +378,7 @@ def handle_text(event: MessageEvent):
                         f"⏰ 倒數：約 {duration} 分鐘\n\n"
                         f"感謝訓練家的回報！周邊訓練家搜尋【{boss_name}】時將能同步看到此道館資訊。"
                     )
-                    line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text=confirm_text)]
-                        )
-                    )
+                    safe_reply(line_bot_api, event, [TextMessage(text=confirm_text)])
                     return
                 elif user_text in ["回報", "回報指令", "回報說明"]:
                     help_text = (
@@ -341,12 +388,7 @@ def handle_text(event: MessageEvent):
                         "💡 範例：`回報 蒼響 台北101 35`\n\n"
                         "回報後，周邊訓練家發送定位即可在 5km 雷達中查到！"
                     )
-                    line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text=help_text)]
-                        )
-                    )
+                    safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                     return
 
             # 新增: 訂閱指令
@@ -356,14 +398,14 @@ def handle_text(event: MessageEvent):
                     subscription_service.remove_subscription(user_id, "取消晨報")
                     subscription_service.add_subscription(user_id, "晨報")
                     msg = "🌅 成功訂閱【每日晨報】！\n每天早上 08:00 將自動為您推播當日重點開蛋頭目與官方限時活動速報。"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                     return
                 elif keyword:
                     if subscription_service.add_subscription(user_id, keyword):
                         msg = f"🔔 成功訂閱關鍵字：【{keyword}】\n當有符合該名稱的頭目或道館回報時，您將會收到推播通知！"
                     else:
                         msg = f"⚠️ 您已經訂閱過【{keyword}】了。"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                     return
 
             if user_text.startswith("取消訂閱"):
@@ -372,14 +414,14 @@ def handle_text(event: MessageEvent):
                     subscription_service.remove_subscription(user_id, "晨報")
                     subscription_service.add_subscription(user_id, "取消晨報")
                     msg = "🔕 已為您取消【每日晨報】推播通知。"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                     return
                 elif keyword:
                     if subscription_service.remove_subscription(user_id, keyword):
                         msg = f"🔕 已為您取消訂閱關鍵字：【{keyword}】"
                     else:
                         msg = f"⚠️ 您尚未訂閱【{keyword}】。"
-                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                     return
 
             if user_text == "我的訂閱":
@@ -388,11 +430,20 @@ def handle_text(event: MessageEvent):
                     msg = "📋 您目前訂閱的項目有：\n" + "\n".join(f"- {s}" for s in subs)
                 else:
                     msg = "📋 您目前沒有任何訂閱項目（可輸入「訂閱 蒼響」或「訂閱 晨報」）。"
-                line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                 return
 
-            # 新增: 晨報即時查閱指令
-            if user_text.lower().strip() in ["晨報", "今日晨報", "每日晨報", "早報", "今日早報"]:
+            # 新增: 晨報即時查閱指令 (支援各類問法如「晨報」、「看晨報」、「早報」、「今日晨報」、「每日晨報」等)
+            clean_text = re.sub(r"[^\w\u4e00-\u9fff]", "", user_text.lower().strip())
+            is_digest_query = bool(
+                clean_text in [
+                    "晨報", "今日晨報", "今天晨報", "每日晨報", "早報", "今日早報", "今天早報", "每日早報",
+                    "早安", "日報", "快報", "每日快報", "digest", "morning"
+                ] or
+                re.search(r"(晨報|早報|日報)", clean_text)
+            )
+
+            if is_digest_query:
                 today_raids = today_raids_service.get_today_raids()
                 events = events_service.get_events()
                 flex_dict = create_daily_digest_flex(today_raids, events)
@@ -415,9 +466,9 @@ def handle_text(event: MessageEvent):
                 except Exception:
                     msg = TextMessage(text=fallback_text, quick_reply=quick_reply)
 
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(reply_token=event.reply_token, messages=[msg])
-                )
+                safe_reply(line_bot_api, event, [msg])
+                with open("webhook_events.log", "a", encoding="utf-8") as f:
+                    f.write(f"[HANDLE_TEXT DIGEST SUCCESS] reply sent\n")
                 return
 
             # 新增: 圖鑑查詢指令
@@ -429,11 +480,10 @@ def handle_text(event: MessageEvent):
                         "👉 請輸入 `查詢 [寶可夢名稱]` 或 `打手 [寶可夢名稱]`\n"
                         "💡 範例：`查詢 蒼響`、`打手 超夢`"
                     )
-                    res = line_bot_api.reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text=help_msg)]
-                        )
+                    res = safe_reply(
+                        line_bot_api,
+                        event,
+                        [TextMessage(text=help_msg)]
                     )
                     with open("webhook_events.log", "a", encoding="utf-8") as f:
                         f.write(f"[HANDLE_TEXT QUERY HELP SUCCESS] reply sent: {res}\n")
@@ -464,11 +514,10 @@ def handle_text(event: MessageEvent):
                 else:
                     msg = f"❌ 找不到關於【{pokemon_name}】的資料，請確認名稱是否正確！"
 
-                res = line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=msg)]
-                    )
+                res = safe_reply(
+                    line_bot_api,
+                    event,
+                    [TextMessage(text=msg)]
                 )
                 with open("webhook_events.log", "a", encoding="utf-8") as f:
                     f.write(f"[HANDLE_TEXT QUERY SUCCESS] reply sent for '{pokemon_name}': {res}\n")
@@ -525,11 +574,10 @@ def handle_text(event: MessageEvent):
                         TextMessage(text=fallback_text, quick_reply=quick_reply)
                     ]
 
-                res = line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=messages_to_send
-                    )
+                res = safe_reply(
+                    line_bot_api,
+                    event,
+                    messages_to_send
                 )
                 with open("webhook_events.log", "a", encoding="utf-8") as f:
                     f.write(f"[HANDLE_TEXT TODAY RAIDS SUCCESS] reply sent: {res}\n")
@@ -582,11 +630,10 @@ def handle_text(event: MessageEvent):
                         TextMessage(text=fallback_text, quick_reply=quick_reply)
                     ]
 
-                res = line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=messages_to_send
-                    )
+                res = safe_reply(
+                    line_bot_api,
+                    event,
+                    messages_to_send
                 )
                 with open("webhook_events.log", "a", encoding="utf-8") as f:
                     f.write(f"[HANDLE_TEXT EVENTS SUCCESS] reply sent: {res}\n")
@@ -627,11 +674,10 @@ def handle_text(event: MessageEvent):
                     "• 📢 社群即時回報：輸入 `回報 蒼響 台北車站 35`\n"
                     "• 💡 查看全部指令：輸入 `幫助`"
                 )
-                line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=unknown_text, quick_reply=unknown_quick_reply)]
-                    )
+                safe_reply(
+                    line_bot_api,
+                    event,
+                    [TextMessage(text=unknown_text, quick_reply=unknown_quick_reply)]
                 )
                 with open("webhook_events.log", "a", encoding="utf-8") as f:
                     f.write(f"[HANDLE_TEXT UNKNOWN GUIDANCE] reply sent for: {user_text}\n")
@@ -653,16 +699,15 @@ def handle_text(event: MessageEvent):
                 f"我將為您連線 Niantic Campfire 掃描方圓 {settings.DEFAULT_SEARCH_RADIUS_KM} 公里內所有正在進行與即將開蛋的團體戰！"
             )
 
-            res = line_bot_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=event.reply_token,
-                    messages=[
-                        TextMessage(
-                            text=reply_text,
-                            quick_reply=location_quick_reply
-                        )
-                    ]
-                )
+            res = safe_reply(
+                line_bot_api,
+                event,
+                [
+                    TextMessage(
+                        text=reply_text,
+                        quick_reply=location_quick_reply
+                    )
+                ]
             )
             with open("webhook_events.log", "a", encoding="utf-8") as f:
                 f.write(f"[HANDLE_TEXT SUCCESS] reply sent: {res}\n")
@@ -703,11 +748,10 @@ def handle_location(event: MessageEvent):
                     f"在您方圓 {settings.DEFAULT_SEARCH_RADIUS_KM} 公里內，目前未偵測到【{target_pokemon}】的團體戰。\n"
                     f"建議稍候再試，或輸入其他寶可夢名稱查詢！"
                 )
-                res = line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[TextMessage(text=no_result_text)]
-                    )
+                res = safe_reply(
+                    line_bot_api,
+                    event,
+                    [TextMessage(text=no_result_text)]
                 )
             else:
                 # 建立 Flex 卡片輪播
@@ -717,11 +761,10 @@ def handle_location(event: MessageEvent):
                     contents=FlexContainer.from_dict(flex_content)
                 )
 
-                res = line_bot_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=event.reply_token,
-                        messages=[flex_message]
-                    )
+                res = safe_reply(
+                    line_bot_api,
+                    event,
+                    [flex_message]
                 )
             with open("webhook_events.log", "a", encoding="utf-8") as f:
                 f.write(f"[HANDLE_LOCATION SUCCESS] reply sent: {res}\n")
