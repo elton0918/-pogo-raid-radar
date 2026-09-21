@@ -31,6 +31,8 @@ def _load_database():
     if POKEMON_NAMES_EN and POKEMON_NAMES_ZH:
         EN_TO_ZH_DICT = {en.lower(): zh for en, zh in zip(POKEMON_NAMES_EN, POKEMON_NAMES_ZH)}
 
+_load_database()
+
 COMMON_ALIASES: Dict[str, str] = {
     "班基拉斯": "班吉拉",
     "古拉頓": "固拉多",

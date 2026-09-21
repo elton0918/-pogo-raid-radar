@@ -56,6 +56,10 @@ class TodayRaidsService:
             raids_data = self._get_fallback_raids()
             source = "offline_database"
 
+        # 4. 智慧整併：若當天有進行中的團體戰日 (Raid Day) 或晚餐會 (Raid Hour)，將其頭目置頂插入
+        if raids_data:
+            raids_data = self._merge_active_event_raids(raids_data)
+
         result = {
             "source": source,
             "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -87,6 +91,9 @@ class TodayRaidsService:
             raids_data = self._get_fallback_raids()
             source = "offline_database"
 
+        if raids_data:
+            raids_data = self._merge_active_event_raids(raids_data)
+
         result = {
             "source": source,
             "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -97,6 +104,68 @@ class TodayRaidsService:
         self._cached_data = result
         self._cache_expires_at = now + timedelta(seconds=self.cache_ttl_seconds)
         return result
+
+    def _merge_active_event_raids(self, categories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """檢查是否有進行中的團體戰日 (Raid Day) 或晚餐會 (Raid Hour)，將其頭目置頂插入"""
+        try:
+            from app.services.events_service import events_service
+            active_raids = events_service.get_active_raid_events()
+            if not active_raids:
+                return categories
+
+            existing_boss_names = set()
+            for cat in categories:
+                for b in cat.get("bosses", []):
+                    existing_boss_names.add(b.get("name_zh", "").lower())
+                    existing_boss_names.add(b.get("search_name", "").lower())
+
+            event_categories = []
+            for ev in active_raids:
+                tag_raw = ev.get("raw_tag", "").lower()
+                # 針對限時快閃活動（團體戰日 Raid Day、晚餐會 Raid Hour 等）
+                if not any(k in tag_raw for k in ["raid day", "raid hour"]):
+                    continue
+
+                boss_items = []
+                for p_name in ev.get("featured_pokemon", []):
+                    if p_name.lower() in existing_boss_names:
+                        continue
+
+                    is_mega = "mega" in ev.get("title_en", "").lower() or "超級" in ev.get("title_zh", "")
+                    name_prefix = "超級" if is_mega and not p_name.startswith("超級") else ""
+                    full_name_zh = f"{name_prefix}{p_name}"
+
+                    img = ev.get("image_url") or get_pokemon_image_url(p_name)
+                    boss_items.append({
+                        "name_en": ev.get("title_en", p_name),
+                        "name_zh": full_name_zh,
+                        "search_name": p_name,
+                        "shiny_available": True,
+                        "types": ["活動特選"],
+                        "types_en": ["Event"],
+                        "cp_range": "限時開蛋",
+                        "boosted_cp": "",
+                        "weather_boost": [],
+                        "image_url": img,
+                        "is_shadow": False,
+                        "is_mega": is_mega
+                    })
+                    existing_boss_names.add(p_name.lower())
+
+                if boss_items:
+                    event_categories.append({
+                        "tier_title": f"🔥 今日限時活動：{ev.get('tag_zh', '團體戰日')} ({ev.get('title_zh', '')})",
+                        "tier_raw": ev.get("raw_tag", "Event"),
+                        "badge": "EVENT",
+                        "color": "#DC2626",
+                        "is_shadow": False,
+                        "bosses": boss_items
+                    })
+
+            return event_categories + categories
+        except Exception as e:
+            logger.warning(f"整併活動頭目時發生異常: {e}")
+            return categories
 
     def _normalize_tier_title(self, raw_title: str, is_shadow: bool) -> tuple[str, str, str]:
         """

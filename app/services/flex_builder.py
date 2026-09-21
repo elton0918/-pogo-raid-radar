@@ -563,3 +563,189 @@ def format_today_raids_text(today_raids_data: Dict[str, Any]) -> str:
     lines.append("💡 提示：輸入寶可夢名稱（例如「藏瑪然特」）並發送定位，即可搜尋 5km 內道館！")
     lines.append("輸入「查詢 藏瑪然特」可查看推薦打手與屬性弱點。")
     return "\n".join(lines)
+
+
+def create_events_carousel_flex(events_data: Dict[str, Any]) -> dict:
+    """
+    將最新活動資訊轉換為 LINE Flex Message 輪播卡片 (Carousel)
+    """
+    current_events = events_data.get("current_events", [])
+    upcoming_events = events_data.get("upcoming_events", [])
+
+    # 優先選取前 6 筆進行中活動 + 前 4 筆即將到來活動 (LINE Carousel 上限 10 張)
+    selected_events = current_events[:6] + upcoming_events[:max(0, 10 - len(current_events[:6]))]
+    if not selected_events:
+        selected_events = upcoming_events[:10]
+
+    bubbles = []
+    for ev in selected_events:
+        status_label = "🔥 進行中" if ev.get("status_type") == "current" else "⏳ 即將開始"
+        theme_color = ev.get("theme_color", "#1E3A8A")
+        badge = ev.get("tag_zh", "限時活動")
+        title_zh = ev.get("title_zh", ev.get("title_en", "活動"))
+        time_zh = ev.get("time_zh", ev.get("raw_time", ""))
+        image_url = ev.get("image_url", "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png")
+        featured = ev.get("featured_pokemon", [])
+
+        body_contents = [
+            {
+                "type": "text",
+                "text": title_zh,
+                "weight": "bold",
+                "size": "md",
+                "wrap": True,
+                "color": "#0F172A"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "xs",
+                "margin": "sm",
+                "contents": [
+                    {"type": "text", "text": "⏰", "size": "xs", "flex": 1},
+                    {"type": "text", "text": time_zh, "size": "xs", "color": "#64748B", "wrap": True, "flex": 9}
+                ]
+            }
+        ]
+
+        if featured:
+            body_contents.append({
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "xs",
+                "margin": "xs",
+                "contents": [
+                    {"type": "text", "text": "👾", "size": "xs", "flex": 1},
+                    {"type": "text", "text": f"主打：{'、'.join(featured[:3])}", "size": "xs", "color": "#2563EB", "weight": "bold", "wrap": True, "flex": 9}
+                ]
+            })
+
+        footer_contents = []
+        if featured:
+            main_pk = featured[0]
+            footer_contents.append({
+                "type": "button",
+                "style": "primary",
+                "color": theme_color,
+                "height": "sm",
+                "action": {
+                    "type": "message",
+                    "label": f"🔍 搜尋 {main_pk[:6]}",
+                    "text": main_pk
+                }
+            })
+            footer_contents.append({
+                "type": "button",
+                "style": "secondary",
+                "height": "sm",
+                "action": {
+                    "type": "message",
+                    "label": f"📊 查 {main_pk[:6]} 討伐指南",
+                    "text": f"查詢 {main_pk}"
+                }
+            })
+        else:
+            footer_contents.append({
+                "type": "button",
+                "style": "primary",
+                "color": theme_color,
+                "height": "sm",
+                "action": {
+                    "type": "message",
+                    "label": "🔥 今日團體戰頭目",
+                    "text": "今日團體戰"
+                }
+            })
+
+        bubble = {
+            "type": "bubble",
+            "size": "kilo",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": theme_color,
+                "paddingTop": "10px",
+                "paddingBottom": "10px",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": f"【{badge}】{status_label}",
+                        "color": "#FFFFFF",
+                        "weight": "bold",
+                        "size": "xs",
+                        "align": "center"
+                    }
+                ]
+            },
+            "hero": {
+                "type": "image",
+                "url": image_url,
+                "size": "full",
+                "aspectRatio": "20:13",
+                "aspectMode": "cover"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "paddingAll": "12px",
+                "contents": body_contents
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "xs",
+                "paddingAll": "10px",
+                "contents": footer_contents
+            }
+        }
+        bubbles.append(bubble)
+
+    return {
+        "type": "carousel",
+        "contents": bubbles
+    }
+
+
+def format_events_text(events_data: Dict[str, Any]) -> str:
+    """
+    將最新活動資訊格式化為純文字版本（用於 Flex 不支援或備援顯示）
+    """
+    updated_at = events_data.get("updated_at", "")
+    current_events = events_data.get("current_events", [])
+    upcoming_events = events_data.get("upcoming_events", [])
+
+    lines = [
+        "📅 【Pokémon GO 官方即時活動一覽】",
+        f"⏰ 更新時間：{updated_at}\n"
+    ]
+
+    if current_events:
+        lines.append("🔥 【進行中活動】：")
+        for ev in current_events[:5]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            time_str = ev.get("time_zh", ev.get("raw_time", ""))
+            featured = ev.get("featured_pokemon", [])
+            lines.append(f"• [{tag}] {title}")
+            lines.append(f"  時間：{time_str}")
+            if featured:
+                lines.append(f"  主打：{'、'.join(featured)}")
+            lines.append("")
+
+    if upcoming_events:
+        lines.append("⏳ 【即將到來活動】：")
+        for ev in upcoming_events[:5]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            time_str = ev.get("time_zh", ev.get("raw_time", ""))
+            featured = ev.get("featured_pokemon", [])
+            lines.append(f"• [{tag}] {title}")
+            lines.append(f"  時間：{time_str}")
+            if featured:
+                lines.append(f"  主打：{'、'.join(featured)}")
+            lines.append("")
+
+    lines.append("💡 提示：輸入活動主打寶可夢（例如「姆克鷹」）並發送定位，可搜尋 5km 道館！")
+    lines.append("輸入「團體戰」可查看今日所有進行中頭目。")
+    return "\n".join(lines)
+

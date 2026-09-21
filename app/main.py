@@ -27,14 +27,17 @@ from linebot.v3.webhooks import (
 )
 
 from app.config import settings
-from app.services.raid_service import raid_service
+from app.services.raid_service import raid_service, POKEMON_ALIASES
 from app.services.campfire_service import campfire_service
 from app.services.flex_builder import (
     create_raid_carousel_flex,
     create_today_raids_carousel_flex,
-    format_today_raids_text
+    format_today_raids_text,
+    create_events_carousel_flex,
+    format_events_text
 )
 from app.services.today_raids_service import today_raids_service
+from app.services.events_service import events_service
 from app.services.subscription_service import subscription_service
 from app.services.notification_service import notification_service
 from app.data.pokemon_data import get_pokemon_info
@@ -147,6 +150,13 @@ def get_today_raids_api(force_refresh: bool = Query(False, description="是否�
     """
     return today_raids_service.get_today_raids(force_refresh=force_refresh)
 
+@app.get("/events")
+def get_events_api(force_refresh: bool = Query(False, description="是否強制重新整理快取")):
+    """
+    查詢 Pokémon GO 官方最新活動一覽（包含進行中與即將到來的團體戰日、晚餐會、極巨星期一、社群日等）
+    """
+    return events_service.get_events(force_refresh=force_refresh)
+
 @app.post("/callback")
 async def line_webhook(request: Request):
     """
@@ -189,6 +199,8 @@ def handle_text(event: MessageEvent):
                     "🤖 【寶可夢 5km 團體戰雷達】功能列表\n\n"
                     "🔥 團體戰頭目一覽：\n"
                     "輸入 `團體戰` 或 `今日團體戰`，即時查看最新 5星傳奇、超級與暗影團體戰名單、CP 及屬性。\n\n"
+                    "📅 官方最新活動：\n"
+                    "輸入 `活動` 或 `今日活動`，查看進行中與即將到來的團體戰日、晚餐會、極巨星期一、社群日等限時活動。\n\n"
                     "📍 尋找團體戰：\n"
                     "直接輸入寶可夢名稱（例如 `蒼響`），機器人會提示您發送「位置資訊」，並找出方圓 5km 內的團體戰。\n\n"
                     "📢 社群即時回報：\n"
@@ -404,12 +416,107 @@ def handle_text(event: MessageEvent):
                     f.write(f"[HANDLE_TEXT TODAY RAIDS SUCCESS] reply sent: {res}\n")
                 return
 
-            # 3. 一般搜尋指令：記錄目標寶可夢並提示發送定位
+            # 3. 最新活動一覽查詢指令
+            # 支援「活動」、「今日活動」、「今天活動」、「最新活動」、「本週活動」、「活動清單」、「event」、「events」等
+            is_events_query = bool(
+                clean_text in [
+                    "活動", "今日活動", "今天活動", "本週活動", "最新活動",
+                    "活動清單", "活動一覽", "官方活動", "限時活動",
+                    "event", "events"
+                ] or
+                re.search(r"(今天|今日|現行|目前|本期|本週|這週|最新).*(活動|event)", clean_text) or
+                re.search(r"^(有哪些|有什麼|查|查詢|看).*(活動|event)$", clean_text)
+            )
+
+            if is_events_query:
+                events_data = events_service.get_events()
+
+                quick_reply_items = [
+                    QuickReplyItem(action=MessageAction(label="🔥 今日團體戰", text="今日團體戰")),
+                    QuickReplyItem(action=LocationAction(label="📍 傳送定位搜尋5km")),
+                    QuickReplyItem(action=MessageAction(label="🤖 功能選單", text="幫助"))
+                ]
+                # 若有主打寶可夢，加入快捷按鈕
+                for ev in events_data.get("current_events", [])[:3]:
+                    for pk in ev.get("featured_pokemon", []):
+                        if len(quick_reply_items) < 8 and not any(getattr(it.action, "text", "") == pk for it in quick_reply_items):
+                            quick_reply_items.append(
+                                QuickReplyItem(action=MessageAction(label=f"🔍 搜 {pk[:8]}", text=pk))
+                            )
+
+                quick_reply = QuickReply(items=quick_reply_items)
+
+                messages_to_send = []
+                try:
+                    flex_content = create_events_carousel_flex(events_data)
+                    flex_container = FlexContainer.from_dict(flex_content)
+                    messages_to_send = [
+                        FlexMessage(
+                            alt_text=f"📅 【Pokémon GO 最新活動一覽】({events_data.get('updated_at', '')[:10]})",
+                            contents=flex_container,
+                            quick_reply=quick_reply
+                        )
+                    ]
+                except Exception as flex_err:
+                    fallback_text = format_events_text(events_data)
+                    messages_to_send = [
+                        TextMessage(text=fallback_text, quick_reply=quick_reply)
+                    ]
+
+                res = line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=messages_to_send
+                    )
+                )
+                with open("webhook_events.log", "a", encoding="utf-8") as f:
+                    f.write(f"[HANDLE_TEXT EVENTS SUCCESS] reply sent: {res}\n")
+                return
+
+            # 4. 一般搜尋指令：檢查是否為有效寶可夢或帶有明確搜尋意圖
             target_pokemon = user_text
+            has_search_prefix = False
             for prefix in ["團體戰", "團戰", "找", "搜尋", "定位"]:
                 if target_pokemon.startswith(prefix) and len(target_pokemon) > len(prefix):
                     target_pokemon = target_pokemon[len(prefix):].strip()
+                    has_search_prefix = True
                     break
+
+            # 檢查是否為真實寶可夢（或別名）
+            is_valid_pokemon = bool(
+                get_pokemon_info(target_pokemon) or
+                target_pokemon in POKEMON_ALIASES or
+                any(target_pokemon in aliases for aliases in POKEMON_ALIASES.values())
+            )
+
+            # 若使用者未加「找/搜尋」前綴，且輸入字串根本不是任何已知寶可夢，則給予貼心防呆提示
+            if not has_search_prefix and not is_valid_pokemon:
+                unknown_quick_reply = QuickReply(
+                    items=[
+                        QuickReplyItem(action=MessageAction(label="🔥 今日團體戰", text="今日團體戰")),
+                        QuickReplyItem(action=MessageAction(label="📅 最新活動", text="活動")),
+                        QuickReplyItem(action=MessageAction(label="🤖 功能選單", text="幫助"))
+                    ]
+                )
+                unknown_text = (
+                    f"🤔 未能識別指令或寶可夢名稱【{user_text}】\n\n"
+                    "您可以試試以下功能：\n"
+                    "• 🔍 搜尋團體戰：直接輸入寶可夢名稱（例如 `蒼響`、`姆克鷹`）\n"
+                    "• 🔥 今日頭目清單：輸入 `團體戰`\n"
+                    "• 📅 官方最新活動：輸入 `活動`\n"
+                    "• 📊 討伐指南：輸入 `查詢 蒼響`\n"
+                    "• 📢 社群即時回報：輸入 `回報 蒼響 台北車站 35`\n"
+                    "• 💡 查看全部指令：輸入 `幫助`"
+                )
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=unknown_text, quick_reply=unknown_quick_reply)]
+                    )
+                )
+                with open("webhook_events.log", "a", encoding="utf-8") as f:
+                    f.write(f"[HANDLE_TEXT UNKNOWN GUIDANCE] reply sent for: {user_text}\n")
+                return
 
             user_query_cache[user_id] = target_pokemon
 
