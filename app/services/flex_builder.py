@@ -749,3 +749,271 @@ def format_events_text(events_data: Dict[str, Any]) -> str:
     lines.append("輸入「團體戰」可查看今日所有進行中頭目。")
     return "\n".join(lines)
 
+
+def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict[str, Any]) -> dict:
+    """
+    建構每天早上 08:00 的【Pokémon GO 每日晨報】LINE Flex 卡片
+    整合今日焦點團體戰、今日限時活動與加成提醒
+    """
+    from datetime import datetime, timezone, timedelta
+    taipei_tz = timezone(timedelta(hours=8))
+    now = datetime.now(taipei_tz)
+    date_str = now.strftime("%Y/%m/%d (%a)")
+    days_map = {"Mon": "週一", "Tue": "週二", "Wed": "週三", "Thu": "週四", "Fri": "週五", "Sat": "週六", "Sun": "週日"}
+    for en_d, zh_d in days_map.items():
+        date_str = date_str.replace(en_d, zh_d)
+
+    categories = today_raids_data.get("categories", [])
+    current_events = events_data.get("current_events", [])
+
+    body_contents = []
+
+    # 1. 今日重點團體戰區塊
+    body_contents.append({
+        "type": "text",
+        "text": "⚔️ 今日重點團體戰頭目",
+        "weight": "bold",
+        "size": "sm",
+        "color": "#1E3A8A"
+    })
+
+    raid_count = 0
+    for cat in categories[:4]:
+        tier_title = cat.get("tier_title", "")
+        bosses = cat.get("bosses", [])
+        if not bosses:
+            continue
+
+        boss_names = []
+        for b in bosses[:2]:
+            shiny = " ✨" if b.get("shiny_available") else ""
+            boss_names.append(f"{b.get('name_zh')}{shiny}")
+
+        names_text = "、".join(boss_names)
+        cp_text = f"CP {bosses[0].get('cp_range')}" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
+
+        line_box = {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "xs",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"• {tier_title}：{names_text}",
+                    "size": "xs",
+                    "color": "#1F2937",
+                    "weight": "bold",
+                    "wrap": True
+                }
+            ]
+        }
+        if cp_text:
+            line_box["contents"].append({
+                "type": "text",
+                "text": f"   {cp_text}",
+                "size": "xxs",
+                "color": "#6B7280"
+            })
+        body_contents.append(line_box)
+        raid_count += 1
+
+    if raid_count == 0:
+        body_contents.append({
+            "type": "text",
+            "text": "• 目前進行常態團體戰，點擊下方查看詳情",
+            "size": "xs",
+            "color": "#6B7280"
+        })
+
+    # 分隔線
+    body_contents.append({"type": "separator", "margin": "md"})
+
+    # 2. 今日限時活動區塊
+    body_contents.append({
+        "type": "text",
+        "text": "📅 今日官方限時活動",
+        "weight": "bold",
+        "size": "sm",
+        "color": "#DC2626",
+        "margin": "md"
+    })
+
+    if current_events:
+        for ev in current_events[:3]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            time_zh = ev.get("time_zh", "")
+            body_contents.append({
+                "type": "box",
+                "layout": "vertical",
+                "margin": "xs",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": f"• [{tag}] {title}",
+                        "size": "xs",
+                        "weight": "bold",
+                        "color": "#111827",
+                        "wrap": True
+                    },
+                    {
+                        "type": "text",
+                        "text": f"   ⏰ {time_zh}",
+                        "size": "xxs",
+                        "color": "#6B7280",
+                        "wrap": True
+                    }
+                ]
+            })
+    else:
+        body_contents.append({
+            "type": "text",
+            "text": "• 今日暫無特殊快閃活動，常態活動持續中",
+            "size": "xs",
+            "color": "#6B7280",
+            "margin": "xs"
+        })
+
+    # 分隔線
+    body_contents.append({"type": "separator", "margin": "md"})
+
+    # 3. 每日小提醒
+    body_contents.append({
+        "type": "text",
+        "text": "💡 每日出發提醒",
+        "weight": "bold",
+        "size": "sm",
+        "color": "#059669",
+        "margin": "md"
+    })
+    body_contents.append({
+        "type": "text",
+        "text": "• 旋轉道館轉盤可領取每日免費團體戰入場券\n• 直接在對話輸入寶可夢名稱，秒查方圓 5km 道館！",
+        "size": "xxs",
+        "color": "#4B5563",
+        "wrap": True,
+        "margin": "xs"
+    })
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#1E3A8A",
+            "paddingTop": "12px",
+            "paddingBottom": "12px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🌅 【Pokémon GO 每日晨報】",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "md",
+                    "align": "center"
+                },
+                {
+                    "type": "text",
+                    "text": f"⏰ {date_str} 08:00 今日頭目與活動速報",
+                    "color": "#93C5FD",
+                    "size": "xxs",
+                    "align": "center",
+                    "margin": "xs"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "14px",
+            "contents": body_contents
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "paddingAll": "12px",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#1E3A8A",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "🔥 瀏覽今日完整頭目",
+                        "text": "今日團體戰"
+                    }
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {
+                        "type": "message",
+                        "label": "📅 查看本週活動清單",
+                        "text": "活動"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": "🔔 若欲取消每日晨報，請輸入「取消訂閱 晨報」",
+                    "size": "xxs",
+                    "color": "#9CA3AF",
+                    "align": "center",
+                    "margin": "sm"
+                }
+            ]
+        }
+    }
+
+    return bubble
+
+
+def format_daily_digest_text(today_raids_data: Dict[str, Any], events_data: Dict[str, Any]) -> str:
+    """
+    格式化每日晨報為純文字版本（用於備援顯示）
+    """
+    from datetime import datetime, timezone, timedelta
+    taipei_tz = timezone(timedelta(hours=8))
+    now = datetime.now(taipei_tz)
+    date_str = now.strftime("%Y/%m/%d (%a)")
+
+    categories = today_raids_data.get("categories", [])
+    current_events = events_data.get("current_events", [])
+
+    lines = [
+        "🌅 【Pokémon GO 每日晨報】",
+        f"⏰ 日期：{date_str} 08:00\n",
+        "⚔️ 【今日重點團體戰頭目】："
+    ]
+
+    for cat in categories[:4]:
+        tier_title = cat.get("tier_title", "")
+        bosses = cat.get("bosses", [])
+        if not bosses:
+            continue
+        names = "、".join([f"{b.get('name_zh')}{' ✨' if b.get('shiny_available') else ''}" for b in bosses[:2]])
+        cp = f" [CP {bosses[0].get('cp_range')}]" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
+        lines.append(f"• {tier_title}：{names}{cp}")
+
+    lines.append("\n📅 【今日官方限時活動】：")
+    if current_events:
+        for ev in current_events[:3]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            time_zh = ev.get("time_zh", "")
+            lines.append(f"• [{tag}] {title} (⏰ {time_zh})")
+    else:
+        lines.append("• 今日為常態活動期間，祝您捕捉順利！")
+
+    lines.append("\n💡 【每日出發提醒】：")
+    lines.append("• 旋轉道館領取免費每日團體戰入場券！")
+    lines.append("• 直接在對話輸入寶可夢名稱發送定位，可搜尋 5km 道館。")
+    lines.append("• 輸入「團體戰」或「活動」可查閱完整詳細資訊。")
+    lines.append("（若欲取消晨報通知，請輸入「取消訂閱 晨報」）")
+
+    return "\n".join(lines)
+
+

@@ -113,3 +113,32 @@ def test_line_unknown_text_guard():
     """測試 LINE 輸入非指令非寶可夢文字時，能正確觸發防呆引導而非誤判為寶可夢"""
     resp = _send_mock_line_message("隨機未知測試字串xyz")
     assert resp.status_code == 200
+
+def test_daily_digest_flex_and_text():
+    """測試每日晨報 Flex 與純文字建構"""
+    from app.services.flex_builder import create_daily_digest_flex, format_daily_digest_text
+    today_raids = today_raids_service.get_today_raids()
+    events = events_service.get_events()
+    flex_dict = create_daily_digest_flex(today_raids, events)
+    assert flex_dict["type"] == "bubble"
+    container = FlexContainer.from_dict(flex_dict)
+    assert container is not None
+    text = format_daily_digest_text(today_raids, events)
+    assert "每日晨報" in text
+
+def test_daily_digest_cron_endpoint():
+    """測試 /cron/daily-digest 端點預覽模式"""
+    resp = client.get("/cron/daily-digest?dry_run=true")
+    assert resp.status_code == 200
+    res_json = resp.json()
+    assert res_json["mode"] == "dry_run"
+    assert "preview_text" in res_json
+
+def test_line_digest_commands():
+    """測試 LINE 輸入「晨報」與「訂閱 晨報」指令"""
+    resp1 = _send_mock_line_message("晨報")
+    assert resp1.status_code == 200
+
+    resp2 = _send_mock_line_message("訂閱 晨報")
+    assert resp2.status_code == 200
+

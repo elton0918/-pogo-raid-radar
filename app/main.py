@@ -1,7 +1,11 @@
 import json
 import re
+import asyncio
+import logging
 import threading
-from typing import Dict, Optional
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, Request, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -34,7 +38,9 @@ from app.services.flex_builder import (
     create_today_raids_carousel_flex,
     format_today_raids_text,
     create_events_carousel_flex,
-    format_events_text
+    format_events_text,
+    create_daily_digest_flex,
+    format_daily_digest_text
 )
 from app.services.today_raids_service import today_raids_service
 from app.services.events_service import events_service
@@ -42,10 +48,53 @@ from app.services.subscription_service import subscription_service
 from app.services.notification_service import notification_service
 from app.data.pokemon_data import get_pokemon_info
 
+logger = logging.getLogger(__name__)
+TAIPEI_TZ = timezone(timedelta(hours=8))
+
+async def daily_digest_scheduler():
+    """
+    每天早上 08:00 (台灣時間 UTC+8) 自動執行晨報推播的背景排程
+    """
+    logger.info("🕒 每日 08:00 晨報背景排程已啟動...")
+    while True:
+        try:
+            now = datetime.now(TAIPEI_TZ)
+            # 計算下一個 08:00:00
+            target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+
+            sleep_seconds = (target - now).total_seconds()
+            logger.info(f"⏳ 距下次 08:00 晨報發送尚有 {sleep_seconds:.1f} 秒 (約 {sleep_seconds/3600:.2f} 小時)...")
+
+            await asyncio.sleep(sleep_seconds)
+
+            logger.info("🌅 觸發每日 08:00 晨報推播！")
+            notification_service.send_daily_digest()
+
+            # 發送完等待 60 秒，避免微秒誤差在同分鐘內重複觸發
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            logger.info("晨報排程已終止")
+            break
+        except Exception as e:
+            logger.error(f"晨報排程執行異常: {e}")
+            await asyncio.sleep(60)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(daily_digest_scheduler())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(
     title="Pokemon GO 5km 團體戰雷達 LINE Bot (Niantic Campfire 整合版)",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # 記憶體內快取使用者最近搜尋的目標寶可夢 (Key: user_id, Value: target_pokemon)
@@ -157,6 +206,33 @@ def get_events_api(force_refresh: bool = Query(False, description="是否強制�
     """
     return events_service.get_events(force_refresh=force_refresh)
 
+@app.get("/cron/daily-digest")
+@app.post("/cron/daily-digest")
+def trigger_daily_digest_api(
+    dry_run: bool = Query(False, description="是否為試跑預覽模式 (不消耗 LINE Push 額度)"),
+    user_id: Optional[str] = Query(None, description="指定單一 user_id 測試發送")
+):
+    """
+    手動或透過外部定時排程服務 (如 cron-job.org / UptimeRobot) 觸發每日 08:00 晨報
+    """
+    if dry_run:
+        today_raids = today_raids_service.get_today_raids()
+        events = events_service.get_events()
+        preview_text = format_daily_digest_text(today_raids, events)
+        preview_flex = create_daily_digest_flex(today_raids, events)
+        target_users = [user_id] if user_id else subscription_service.get_digest_subscribers()
+        return {
+            "mode": "dry_run",
+            "message": "晨報內容預覽 (未實際發送 LINE Push)",
+            "subscribers": target_users,
+            "preview_text": preview_text,
+            "preview_flex": preview_flex
+        }
+
+    target_users = [user_id] if user_id else None
+    result = notification_service.send_daily_digest(user_ids=target_users)
+    return result
+
 @app.post("/callback")
 async def line_webhook(request: Request):
     """
@@ -201,6 +277,8 @@ def handle_text(event: MessageEvent):
                     "輸入 `團體戰` 或 `今日團體戰`，即時查看最新 5星傳奇、超級與暗影團體戰名單、CP 及屬性。\n\n"
                     "📅 官方最新活動：\n"
                     "輸入 `活動` 或 `今日活動`，查看進行中與即將到來的團體戰日、晚餐會、極巨星期一、社群日等限時活動。\n\n"
+                    "🌅 每日 08:00 晨報：\n"
+                    "每天早上 08:00 自動推播今日開蛋與限時活動速報！（可輸入 `晨報` 隨時查閱，或 `訂閱 晨報` / `取消訂閱 晨報`）\n\n"
                     "📍 尋找團體戰：\n"
                     "直接輸入寶可夢名稱（例如 `蒼響`），機器人會提示您發送「位置資訊」，並找出方圓 5km 內的團體戰。\n\n"
                     "📢 社群即時回報：\n"
@@ -274,7 +352,13 @@ def handle_text(event: MessageEvent):
             # 新增: 訂閱指令
             if user_text.startswith("訂閱"):
                 keyword = user_text[2:].strip()
-                if keyword:
+                if keyword in ["晨報", "每日晨報", "早報"]:
+                    subscription_service.remove_subscription(user_id, "取消晨報")
+                    subscription_service.add_subscription(user_id, "晨報")
+                    msg = "🌅 成功訂閱【每日晨報】！\n每天早上 08:00 將自動為您推播當日重點開蛋頭目與官方限時活動速報。"
+                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    return
+                elif keyword:
                     if subscription_service.add_subscription(user_id, keyword):
                         msg = f"🔔 成功訂閱關鍵字：【{keyword}】\n當有符合該名稱的頭目或道館回報時，您將會收到推播通知！"
                     else:
@@ -284,7 +368,13 @@ def handle_text(event: MessageEvent):
 
             if user_text.startswith("取消訂閱"):
                 keyword = user_text[4:].strip()
-                if keyword:
+                if keyword in ["晨報", "每日晨報", "早報"]:
+                    subscription_service.remove_subscription(user_id, "晨報")
+                    subscription_service.add_subscription(user_id, "取消晨報")
+                    msg = "🔕 已為您取消【每日晨報】推播通知。"
+                    line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                    return
+                elif keyword:
                     if subscription_service.remove_subscription(user_id, keyword):
                         msg = f"🔕 已為您取消訂閱關鍵字：【{keyword}】"
                     else:
@@ -293,12 +383,41 @@ def handle_text(event: MessageEvent):
                     return
 
             if user_text == "我的訂閱":
-                subs = subscription_service.get_user_subscriptions(user_id)
+                subs = [s for s in subscription_service.get_user_subscriptions(user_id) if not s.startswith("取消")]
                 if subs:
-                    msg = "📋 您目前訂閱的關鍵字有：\n" + "\n".join(f"- {s}" for s in subs)
+                    msg = "📋 您目前訂閱的項目有：\n" + "\n".join(f"- {s}" for s in subs)
                 else:
-                    msg = "📋 您目前沒有任何訂閱的關鍵字。"
+                    msg = "📋 您目前沒有任何訂閱項目（可輸入「訂閱 蒼響」或「訂閱 晨報」）。"
                 line_bot_api.reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=msg)]))
+                return
+
+            # 新增: 晨報即時查閱指令
+            if user_text.lower().strip() in ["晨報", "今日晨報", "每日晨報", "早報", "今日早報"]:
+                today_raids = today_raids_service.get_today_raids()
+                events = events_service.get_events()
+                flex_dict = create_daily_digest_flex(today_raids, events)
+                fallback_text = format_daily_digest_text(today_raids, events)
+
+                quick_reply = QuickReply(
+                    items=[
+                        QuickReplyItem(action=MessageAction(label="🔥 今日團體戰", text="今日團體戰")),
+                        QuickReplyItem(action=MessageAction(label="📅 最新活動", text="活動")),
+                        QuickReplyItem(action=LocationAction(label="📍 傳送定位搜尋5km"))
+                    ]
+                )
+
+                try:
+                    msg = FlexMessage(
+                        alt_text="🌅 【Pokémon GO 每日晨報】今日頭目與活動速報",
+                        contents=FlexContainer.from_dict(flex_dict),
+                        quick_reply=quick_reply
+                    )
+                except Exception:
+                    msg = TextMessage(text=fallback_text, quick_reply=quick_reply)
+
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(reply_token=event.reply_token, messages=[msg])
+                )
                 return
 
             # 新增: 圖鑑查詢指令

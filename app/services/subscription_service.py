@@ -64,6 +64,21 @@ class SubscriptionService:
     def get_user_subscriptions(self, user_id: str) -> List[str]:
         return self._subscriptions.get(user_id, [])
 
+    def get_all_subscribers(self) -> List[str]:
+        """取得所有已登記的使用者 user_id 清單"""
+        return list(self._subscriptions.keys())
+
+    def get_digest_subscribers(self) -> List[str]:
+        """
+        取得晨報推播對象：
+        包含所有登記的使用者，除非使用者設定了「取消晨報」或「不收晨報」
+        """
+        subscribers = []
+        for user_id, keywords in self._subscriptions.items():
+            if "取消晨報" not in keywords and "不收晨報" not in keywords:
+                subscribers.append(user_id)
+        return subscribers
+
     def get_subscribers_for_raid(self, boss_name: str, gym_name: str) -> List[str]:
         """
         比對是否有使用者的關鍵字包含在頭目名稱或道館名稱中
@@ -78,3 +93,4 @@ class SubscriptionService:
         return subscribers
 
 subscription_service = SubscriptionService()
+
