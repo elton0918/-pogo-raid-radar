@@ -142,3 +142,31 @@ def test_line_digest_commands():
     resp2 = _send_mock_line_message("訂閱 晨報")
     assert resp2.status_code == 200
 
+def test_ended_events_filtered_and_date_labels_present():
+    """測試已經結束的活動徹底被過濾排除，且活動均包含舉辦日期繁中標籤"""
+    from datetime import datetime, timezone, timedelta
+    taipei_tz = timezone(timedelta(hours=8))
+    now = datetime.now(taipei_tz)
+
+    data = events_service.get_events()
+    current = data.get("current_events", [])
+    upcoming = data.get("upcoming_events", [])
+
+    # 1. 驗證所有活動皆有舉辦日期說明
+    for ev in current + upcoming:
+        assert "date_label" in ev
+        assert len(ev["date_label"]) > 0
+
+    # 2. 驗證已經結束的活動 (end_dt < now) 絕對不存在於名單中
+    for ev in current + upcoming:
+        if ev.get("end_dt"):
+            assert ev["end_dt"] >= now, f"活動 {ev.get('title_zh')} 已結束 ({ev['end_dt']})，不應出現在清單中！"
+
+    # 3. 驗證晨報包含舉辦日期與分流
+    from app.services.flex_builder import format_daily_digest_text
+    today_raids = today_raids_service.get_today_raids()
+    text = format_daily_digest_text(today_raids, data)
+    assert "舉辦日期" in text
+    assert "今日進行中" in text or "近期精彩活動預告" in text
+
+

@@ -1,7 +1,7 @@
 import re
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import httpx
 from bs4 import BeautifulSoup
 
@@ -13,6 +13,9 @@ from app.data.pokemon_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+TAIPEI_TZ = timezone(timedelta(hours=8))
+WEEKDAYS_ZH = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]
 
 EVENT_TAG_MAPPINGS = {
     "raid day": ("⚔️ 團體戰日", "#DC2626"),
@@ -146,119 +149,233 @@ class EventsService:
         t = t.replace("at", "於").replace("Local Time", "當地時間")
         return t.strip()
 
-    def _parse_event_item(self, item_el, status_type: str = "current") -> Optional[Dict[str, Any]]:
-        """解析單一 .event-item 元件"""
-        h2 = item_el.find("h2")
-        if not h2:
+    def _parse_iso_datetime(self, iso_str: Optional[str]) -> Optional[datetime]:
+        """解析 ISO 時間字串為台灣時區 (UTC+8) datetime"""
+        if not iso_str:
             return None
-
-        title_en = h2.get_text(strip=True)
-        if not title_en:
-            return None
-
-        tag_badge = item_el.select_one(".event-tag-badge")
-        raw_tag = tag_badge.get_text(strip=True) if tag_badge else "Event"
-        tag_zh, theme_color = self._normalize_tag(raw_tag)
-
-        title_zh, featured_pokemon = self._translate_event_title(title_en)
-
-        p = item_el.find("p")
-        raw_time = p.get_text(strip=True) if p else ""
-        time_zh = self._translate_time_str(raw_time)
-
-        img_el = item_el.find("img")
-        image_url = img_el.get("src", "") if img_el else ""
-        if not image_url:
-            # 若無圖片，若有主打寶可夢則自動使用寶可夢立繪
-            if featured_pokemon:
-                image_url = get_pokemon_image_url(featured_pokemon[0])
+        try:
+            if "+" in iso_str or iso_str.endswith("Z"):
+                dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+                return dt.astimezone(TAIPEI_TZ)
             else:
-                image_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png"
+                dt = datetime.fromisoformat(iso_str)
+                return dt.replace(tzinfo=TAIPEI_TZ)
+        except Exception:
+            return None
 
-        countdown_el = item_el.select_one(".event-countdown")
-        countdown_iso = countdown_el.get("data-countdown", "") if countdown_el else ""
-        countdown_to = countdown_el.get("data-countdown-to", "") if countdown_el else ""
+    def _format_event_date_zh(self, start_dt: Optional[datetime], end_dt: Optional[datetime], now_dt: datetime) -> str:
+        """
+        產生活動舉辦日期的繁體中文說明（如「今日進行中 (至 21:00 結束)」、「9月23日 (週三) 18:00 ～ 19:00」）
+        """
+        today = now_dt.date()
+        if start_dt and end_dt:
+            s_date = start_dt.date()
+            e_date = end_dt.date()
+            s_w = WEEKDAYS_ZH[start_dt.weekday()]
+            e_w = WEEKDAYS_ZH[end_dt.weekday()]
+            if s_date == e_date:
+                if s_date == today:
+                    if start_dt <= now_dt <= end_dt:
+                        return f"🔥 今日進行中 (至 {end_dt.strftime('%H:%M')} 結束)"
+                    elif now_dt < start_dt:
+                        return f"⏰ 今日 {start_dt.strftime('%H:%M')} ～ {end_dt.strftime('%H:%M')}"
+                    else:
+                        return f"已於今日 {end_dt.strftime('%H:%M')} 結束"
+                else:
+                    return f"📅 {s_date.month}月{s_date.day}日 ({s_w}) {start_dt.strftime('%H:%M')} ～ {end_dt.strftime('%H:%M')}"
+            else:
+                if s_date <= today <= e_date:
+                    return f"🔥 進行中 (至 {e_date.month}/{e_date.day} {e_w} {end_dt.strftime('%H:%M')} 結束)"
+                elif today < s_date:
+                    return f"📅 {s_date.month}/{s_date.day} ({s_w}) ～ {e_date.month}/{e_date.day} ({e_w})"
+                else:
+                    return f"已結束"
+        elif end_dt:
+            e_date = end_dt.date()
+            e_w = WEEKDAYS_ZH[end_dt.weekday()]
+            if e_date == today:
+                if now_dt <= end_dt:
+                    return f"🔥 今日進行中 (至 {end_dt.strftime('%H:%M')} 結束)"
+                else:
+                    return f"已於今日 {end_dt.strftime('%H:%M')} 結束"
+            elif today < e_date:
+                return f"🔥 進行中 (至 {e_date.month}/{e_date.day} {e_w} {end_dt.strftime('%H:%M')} 結束)"
+            else:
+                return f"已結束"
+        elif start_dt:
+            s_date = start_dt.date()
+            s_w = WEEKDAYS_ZH[start_dt.weekday()]
+            if s_date == today:
+                return f"⏰ 今日 {start_dt.strftime('%H:%M')} 開始"
+            else:
+                return f"📅 {s_date.month}月{s_date.day}日 ({s_w}) {start_dt.strftime('%H:%M')} 開始"
+        return "詳情請見遊戲內公告"
 
-        is_raid_event = any(k in raw_tag.lower() for k in ["raid day", "raid hour", "raid battles"]) or "raid" in title_en.lower()
-
-        return {
-            "status_type": status_type,
-            "title_en": title_en,
-            "title_zh": title_zh,
-            "raw_tag": raw_tag,
-            "tag_zh": tag_zh,
-            "theme_color": theme_color,
-            "raw_time": raw_time,
-            "time_zh": time_zh,
-            "countdown_iso": countdown_iso,
-            "countdown_to": countdown_to,
-            "image_url": image_url,
-            "is_raid_event": is_raid_event,
-            "featured_pokemon": featured_pokemon
-        }
+    def _get_event_priority(self, raw_tag: str) -> int:
+        """計算活動排序權重，快閃與焦點活動置頂"""
+        tag = raw_tag.lower()
+        if "raid day" in tag: return 100
+        if "raid hour" in tag: return 90
+        if "max mondays" in tag or "max monday" in tag: return 80
+        if "community day" in tag: return 75
+        if "spotlight hour" in tag: return 70
+        if "hatch day" in tag: return 65
+        if "event" in tag: return 50
+        if "raid battles" in tag or "mega" in tag: return 40
+        return 10
 
     def _parse_leekduck_events_html(self, html: str) -> Dict[str, Any]:
-        """解析 LeekDuck Events 頁面內容"""
+        """
+        解析 LeekDuck Events 頁面內容：
+        1. 聚合開始與結束時間
+        2. 剔除已經結束的活動 (end_dt < now)
+        3. 格式化舉辦日期中文說明
+        4. 精準劃分為「今日進行中」與「之後即將到來」活動
+        """
         soup = BeautifulSoup(html, "html.parser")
-        current_events = []
+        now = datetime.now(TAIPEI_TZ)
+        today_date = now.date()
+
+        events_by_href = {}
+
+        # 遍歷頁面中所有活動卡片
+        for a in soup.select("a.event-item-link"):
+            href = a.get("href")
+            if not href:
+                continue
+
+            h2 = a.select_one("h2")
+            if not h2:
+                continue
+            title_en = h2.get_text(strip=True)
+            if not title_en:
+                continue
+
+            badge = a.select_one(".event-tag-badge")
+            raw_tag = badge.get_text(strip=True) if badge else "Event"
+            p = a.select_one("p")
+            raw_time = p.get_text(strip=True) if p else ""
+            cd = a.select_one(".event-countdown")
+            cd_to = cd.get("data-countdown-to", "") if cd else ""
+            cd_val = cd.get("data-countdown", "") if cd else ""
+            img = a.select_one("img")
+            image_url = img.get("src", "") if img else ""
+
+            if href not in events_by_href:
+                tag_zh, theme_color = self._normalize_tag(raw_tag)
+                title_zh, featured_pokemon = self._translate_event_title(title_en)
+                time_zh = self._translate_time_str(raw_time)
+
+                if not image_url:
+                    if featured_pokemon:
+                        image_url = get_pokemon_image_url(featured_pokemon[0])
+                    else:
+                        image_url = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png"
+
+                is_raid_event = any(k in raw_tag.lower() for k in ["raid day", "raid hour", "raid battles"]) or "raid" in title_en.lower()
+
+                events_by_href[href] = {
+                    "href": href,
+                    "title_en": title_en,
+                    "title_zh": title_zh,
+                    "raw_tag": raw_tag,
+                    "tag_zh": tag_zh,
+                    "theme_color": theme_color,
+                    "raw_time": raw_time,
+                    "time_zh": time_zh,
+                    "image_url": image_url,
+                    "is_raid_event": is_raid_event,
+                    "featured_pokemon": featured_pokemon,
+                    "start_time": None,
+                    "end_time": None
+                }
+
+            if cd_to == "start" and cd_val:
+                events_by_href[href]["start_time"] = cd_val
+            elif cd_to == "end" and cd_val:
+                events_by_href[href]["end_time"] = cd_val
+
+        today_events = []
         upcoming_events = []
 
-        curr_container = soup.select_one(".events-list.current-events")
-        if curr_container:
-            for it in curr_container.select(".event-item"):
-                parsed = self._parse_event_item(it, status_type="current")
-                if parsed:
-                    current_events.append(parsed)
+        for href, ev in events_by_href.items():
+            start_dt = self._parse_iso_datetime(ev["start_time"])
+            end_dt = self._parse_iso_datetime(ev["end_time"])
+            ev["start_dt"] = start_dt
+            ev["end_dt"] = end_dt
 
-        up_container = soup.select_one(".events-list.upcoming-events")
-        if up_container:
-            for it in up_container.select(".event-item"):
-                parsed = self._parse_event_item(it, status_type="upcoming")
-                if parsed:
-                    upcoming_events.append(parsed)
+            # 1. 核心過濾：已結束活動徹底拿掉 (以當前時間判定)
+            if end_dt and end_dt < now:
+                continue
+
+            # 2. 核心標示：產生明確舉辦日期/時間
+            date_label = self._format_event_date_zh(start_dt, end_dt, now)
+            ev["date_label"] = date_label
+            ev["priority"] = self._get_event_priority(ev["raw_tag"])
+
+            # 3. 核心劃分：只留今天 (今日進行中) 與之後的活動 (近期即將到來)
+            if (start_dt and start_dt.date() == today_date) or (end_dt and end_dt.date() == today_date):
+                ev["status_type"] = "current"
+                today_events.append(ev)
+            elif (start_dt is None or start_dt.date() <= today_date) and (end_dt and end_dt.date() >= today_date):
+                ev["status_type"] = "current"
+                today_events.append(ev)
+            elif start_dt and start_dt.date() > today_date:
+                ev["status_type"] = "upcoming"
+                upcoming_events.append(ev)
+            else:
+                ev["status_type"] = "upcoming"
+                upcoming_events.append(ev)
+
+        # 今日活動優先依重要性/快閃排序
+        today_events.sort(key=lambda x: x["priority"], reverse=True)
+        # 之後的活動依舉辦日期由近到遠排序，同日以重要度排序
+        upcoming_events.sort(key=lambda x: (x["start_dt"].date() if x["start_dt"] else datetime.max.date(), -x["priority"]))
 
         return {
-            "current_events": current_events,
+            "current_events": today_events,
             "upcoming_events": upcoming_events,
-            "total_count": len(current_events) + len(upcoming_events)
+            "total_count": len(today_events) + len(upcoming_events)
         }
 
     def _get_fallback_events(self) -> Dict[str, Any]:
-        """離線內建備援活動名單"""
-        now = datetime.now()
+        """離線內建備援活動名單（確保無已結束項目）"""
+        now = datetime.now(TAIPEI_TZ)
         return {
             "current_events": [
                 {
                     "status_type": "current",
-                    "title_en": "Staraptor Super Mega Raid Day",
-                    "title_zh": "超級姆克鷹 極致超級團體戰日",
-                    "raw_tag": "Raid Day",
-                    "tag_zh": "⚔️ 團體戰日",
-                    "theme_color": "#DC2626",
-                    "raw_time": "14:00 - 17:00",
-                    "time_zh": "14:00 - 17:00 (當地時間)",
+                    "title_en": "Dynamax Articuno, Zapdos, and Moltres during Max Monday",
+                    "title_zh": "急凍鳥、閃電鳥、火焰鳥 極巨星期一",
+                    "raw_tag": "Max Mondays",
+                    "tag_zh": "💥 極巨星期一",
+                    "theme_color": "#7C3AED",
+                    "raw_time": "18:00 - 21:00",
+                    "time_zh": "18:00 - 21:00 (當地時間)",
+                    "date_label": "🔥 今日進行中 (至 21:00 結束)",
                     "countdown_iso": "",
                     "countdown_to": "end",
-                    "image_url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/398.png",
+                    "image_url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/144.png",
                     "is_raid_event": True,
-                    "featured_pokemon": ["姆克鷹"]
+                    "featured_pokemon": ["急凍鳥", "閃電鳥", "火焰鳥"]
                 }
             ],
             "upcoming_events": [
                 {
                     "status_type": "upcoming",
-                    "title_en": "Max Mondays",
-                    "title_zh": "急凍鳥、閃電鳥、火焰鳥 極巨星期一",
-                    "raw_tag": "Max Mondays",
-                    "tag_zh": "💥 極巨星期一",
-                    "theme_color": "#7C3AED",
-                    "raw_time": "Mon, 18:00 - 19:00",
-                    "time_zh": "週一 18:00 - 19:00 (當地時間)",
+                    "title_en": "Xurkitree, Pheromosa, and Buzzwole Raid Hour",
+                    "title_zh": "電束木、費洛美螂、爆肌蚊 團體戰晚餐會",
+                    "raw_tag": "Raid Hour",
+                    "tag_zh": "⚔️ 團體戰晚餐會",
+                    "theme_color": "#EA580C",
+                    "raw_time": "Wed, 18:00 - 19:00",
+                    "time_zh": "週三 18:00 - 19:00 (當地時間)",
+                    "date_label": "📅 9月23日 (週三) 18:00 ～ 19:00",
                     "countdown_iso": "",
                     "countdown_to": "start",
-                    "image_url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/144.png",
+                    "image_url": "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/796.png",
                     "is_raid_event": True,
-                    "featured_pokemon": ["急凍鳥", "閃電鳥", "火焰鳥"]
+                    "featured_pokemon": ["電束木", "費洛美螂", "爆肌蚊"]
                 }
             ],
             "total_count": 2
@@ -266,7 +383,7 @@ class EventsService:
 
     def get_events(self, force_refresh: bool = False) -> Dict[str, Any]:
         """[同步方法] 取得當前與即將到來的活動名單"""
-        now = datetime.now()
+        now = datetime.now(TAIPEI_TZ)
         if not force_refresh and self._cached_data and self._cache_expires_at and self._cache_expires_at > now:
             logger.info("⚡ [Events Cache Hit] 命中最新活動快取")
             return self._cached_data
@@ -307,7 +424,7 @@ class EventsService:
 
     async def get_events_async(self, force_refresh: bool = False) -> Dict[str, Any]:
         """[非同步方法] 取得當前與即將到來的活動名單"""
-        now = datetime.now()
+        now = datetime.now(TAIPEI_TZ)
         if not force_refresh and self._cached_data and self._cache_expires_at and self._cache_expires_at > now:
             return self._cached_data
 

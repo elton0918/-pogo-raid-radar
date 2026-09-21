@@ -579,11 +579,11 @@ def create_events_carousel_flex(events_data: Dict[str, Any]) -> dict:
 
     bubbles = []
     for ev in selected_events:
-        status_label = "🔥 進行中" if ev.get("status_type") == "current" else "⏳ 即將開始"
+        status_label = "🔥 今日進行中" if ev.get("status_type") == "current" else "⏳ 即將到來"
         theme_color = ev.get("theme_color", "#1E3A8A")
         badge = ev.get("tag_zh", "限時活動")
         title_zh = ev.get("title_zh", ev.get("title_en", "活動"))
-        time_zh = ev.get("time_zh", ev.get("raw_time", ""))
+        time_zh = ev.get("date_label") or ev.get("time_zh", ev.get("raw_time", ""))
         image_url = ev.get("image_url", "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png")
         featured = ev.get("featured_pokemon", [])
 
@@ -720,27 +720,27 @@ def format_events_text(events_data: Dict[str, Any]) -> str:
     ]
 
     if current_events:
-        lines.append("🔥 【進行中活動】：")
+        lines.append("🔥 【今日進行中活動】：")
         for ev in current_events[:5]:
             tag = ev.get("tag_zh", "活動")
             title = ev.get("title_zh", ev.get("title_en", ""))
-            time_str = ev.get("time_zh", ev.get("raw_time", ""))
+            time_str = ev.get("date_label") or ev.get("time_zh", ev.get("raw_time", ""))
             featured = ev.get("featured_pokemon", [])
             lines.append(f"• [{tag}] {title}")
-            lines.append(f"  時間：{time_str}")
+            lines.append(f"  舉辦日期：{time_str}")
             if featured:
                 lines.append(f"  主打：{'、'.join(featured)}")
             lines.append("")
 
     if upcoming_events:
-        lines.append("⏳ 【即將到來活動】：")
+        lines.append("⏳ 【近期即將到來活動】：")
         for ev in upcoming_events[:5]:
             tag = ev.get("tag_zh", "活動")
             title = ev.get("title_zh", ev.get("title_en", ""))
-            time_str = ev.get("time_zh", ev.get("raw_time", ""))
+            time_str = ev.get("date_label") or ev.get("time_zh", ev.get("raw_time", ""))
             featured = ev.get("featured_pokemon", [])
             lines.append(f"• [{tag}] {title}")
-            lines.append(f"  時間：{time_str}")
+            lines.append(f"  舉辦日期：{time_str}")
             if featured:
                 lines.append(f"  主打：{'、'.join(featured)}")
             lines.append("")
@@ -828,10 +828,12 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
     # 分隔線
     body_contents.append({"type": "separator", "margin": "md"})
 
-    # 2. 今日限時活動區塊
+    # 2. 官方活動區塊（明確分流「今日進行中」與「近期精彩活動預告」，並附上舉辦日期）
+    upcoming_events = events_data.get("upcoming_events", [])
+
     body_contents.append({
         "type": "text",
-        "text": "📅 今日官方限時活動",
+        "text": "🔥 今日進行中活動",
         "weight": "bold",
         "size": "sm",
         "color": "#DC2626",
@@ -839,10 +841,10 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
     })
 
     if current_events:
-        for ev in current_events[:3]:
+        for ev in current_events[:2]:
             tag = ev.get("tag_zh", "活動")
             title = ev.get("title_zh", ev.get("title_en", ""))
-            time_zh = ev.get("time_zh", "")
+            date_label = ev.get("date_label") or ev.get("time_zh", "")
             body_contents.append({
                 "type": "box",
                 "layout": "vertical",
@@ -858,9 +860,9 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
                     },
                     {
                         "type": "text",
-                        "text": f"   ⏰ {time_zh}",
+                        "text": f"   ⏰ 舉辦日期：{date_label}",
                         "size": "xxs",
-                        "color": "#6B7280",
+                        "color": "#DC2626" if "今日" in date_label else "#4B5563",
                         "wrap": True
                     }
                 ]
@@ -868,11 +870,47 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
     else:
         body_contents.append({
             "type": "text",
-            "text": "• 今日暫無特殊快閃活動，常態活動持續中",
+            "text": "• 今日暫無特殊快閃活動，常態活動進行中",
             "size": "xs",
             "color": "#6B7280",
             "margin": "xs"
         })
+
+    if upcoming_events:
+        body_contents.append({
+            "type": "text",
+            "text": "📅 近期精彩活動預告",
+            "weight": "bold",
+            "size": "sm",
+            "color": "#2563EB",
+            "margin": "md"
+        })
+        for ev in upcoming_events[:2]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            date_label = ev.get("date_label") or ev.get("time_zh", "")
+            body_contents.append({
+                "type": "box",
+                "layout": "vertical",
+                "margin": "xs",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": f"• [{tag}] {title}",
+                        "size": "xs",
+                        "weight": "bold",
+                        "color": "#111827",
+                        "wrap": True
+                    },
+                    {
+                        "type": "text",
+                        "text": f"   ⏰ 舉辦日期：{date_label}",
+                        "size": "xxs",
+                        "color": "#2563EB",
+                        "wrap": True
+                    }
+                ]
+            })
 
     # 分隔線
     body_contents.append({"type": "separator", "margin": "md"})
@@ -952,7 +990,7 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
                     "height": "sm",
                     "action": {
                         "type": "message",
-                        "label": "📅 查看本週活動清單",
+                        "label": "📅 查看全部官方活動",
                         "text": "活動"
                     }
                 },
@@ -979,9 +1017,13 @@ def format_daily_digest_text(today_raids_data: Dict[str, Any], events_data: Dict
     taipei_tz = timezone(timedelta(hours=8))
     now = datetime.now(taipei_tz)
     date_str = now.strftime("%Y/%m/%d (%a)")
+    days_map = {"Mon": "週一", "Tue": "週二", "Wed": "週三", "Thu": "週四", "Fri": "週五", "Sat": "週六", "Sun": "週日"}
+    for en_d, zh_d in days_map.items():
+        date_str = date_str.replace(en_d, zh_d)
 
     categories = today_raids_data.get("categories", [])
     current_events = events_data.get("current_events", [])
+    upcoming_events = events_data.get("upcoming_events", [])
 
     lines = [
         "🌅 【Pokémon GO 每日晨報】",
@@ -998,15 +1040,25 @@ def format_daily_digest_text(today_raids_data: Dict[str, Any], events_data: Dict
         cp = f" [CP {bosses[0].get('cp_range')}]" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
         lines.append(f"• {tier_title}：{names}{cp}")
 
-    lines.append("\n📅 【今日官方限時活動】：")
+    lines.append("\n🔥 【今日進行中活動】：")
     if current_events:
-        for ev in current_events[:3]:
+        for ev in current_events[:2]:
             tag = ev.get("tag_zh", "活動")
             title = ev.get("title_zh", ev.get("title_en", ""))
-            time_zh = ev.get("time_zh", "")
-            lines.append(f"• [{tag}] {title} (⏰ {time_zh})")
+            date_label = ev.get("date_label") or ev.get("time_zh", "")
+            lines.append(f"• [{tag}] {title}")
+            lines.append(f"  ⏰ 舉辦日期：{date_label}")
     else:
         lines.append("• 今日為常態活動期間，祝您捕捉順利！")
+
+    if upcoming_events:
+        lines.append("\n📅 【近期精彩活動預告】：")
+        for ev in upcoming_events[:2]:
+            tag = ev.get("tag_zh", "活動")
+            title = ev.get("title_zh", ev.get("title_en", ""))
+            date_label = ev.get("date_label") or ev.get("time_zh", "")
+            lines.append(f"• [{tag}] {title}")
+            lines.append(f"  ⏰ 舉辦日期：{date_label}")
 
     lines.append("\n💡 【每日出發提醒】：")
     lines.append("• 旋轉道館領取免費每日團體戰入場券！")
