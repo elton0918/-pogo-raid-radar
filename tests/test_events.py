@@ -157,6 +157,12 @@ def test_line_digest_commands():
     resp7 = _send_mock_line_message("幫助")
     assert resp7.status_code == 200
 
+    resp8 = _send_mock_line_message("回報 蒼響 台北101 35")
+    assert resp8.status_code == 200
+
+    resp9 = _send_mock_line_message("回報")
+    assert resp9.status_code == 200
+
     from app.services.subscription_service import subscription_service
     subscription_service.remove_user("Utestuser12345")
 

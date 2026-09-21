@@ -338,55 +338,22 @@ def handle_text(event: MessageEvent):
                     "每天早上 08:00 自動推播今日開蛋與限時活動速報！（可輸入 `晨報` 隨時查閱，或 `訂閱 晨報` / `取消訂閱 晨報`）\n\n"
                     "📍 尋找團體戰：\n"
                     "直接輸入寶可夢名稱（例如 `蒼響`），機器人會提示您發送「位置資訊」，並找出方圓 5km 內的團體戰。\n\n"
-                    "📢 社群即時回報：\n"
-                    "輸入 `回報 蒼響 大安森林公園 35`，將現場資訊分享給周遭玩家。\n\n"
                     "📊 戰前圖鑑與 IV 查詢：\n"
                     "輸入 `查詢 蒼響` 或 `打手 蒼響`，可快速查看推薦剋星與 100% IV CP 值。"
                 )
                 safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                 return
 
-            # 1. 支援社群即時回報指令：格式例如「回報 蒼響 大安森林公園」或「回報」
+            # 玩家回報功能下線處理
             if user_text.startswith("回報") or user_text.startswith("+"):
-                parts = re.split(r"[\s,，]+", user_text)
-                if len(parts) >= 3:
-                    boss_name = parts[1]
-                    gym_name = parts[2]
-                    duration = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else 45
-                    
-                    # 登記社群回報
-                    new_raid = campfire_service.add_reported_raid(
-                        gym_name=gym_name,
-                        boss_name=boss_name,
-                        duration_minutes=duration,
-                        reporter=user_id[:8]
-                    )
-                    
-                    # 觸發推播 (改用背景 Thread 執行，不卡死主程式)
-                    threading.Thread(
-                        target=notification_service.notify_subscribers,
-                        args=(new_raid,)
-                    ).start()
-
-                    confirm_text = (
-                        f"✅ 【社群即時回報成功】！\n\n"
-                        f"🏛 道館：{gym_name}\n"
-                        f"👾 頭目：{boss_name}\n"
-                        f"⏰ 倒數：約 {duration} 分鐘\n\n"
-                        f"感謝訓練家的回報！周邊訓練家搜尋【{boss_name}】時將能同步看到此道館資訊。"
-                    )
-                    safe_reply(line_bot_api, event, [TextMessage(text=confirm_text)])
-                    return
-                elif user_text in ["回報", "回報指令", "回報說明"]:
-                    help_text = (
-                        "📢 【團體戰社群即時回報教學】\n\n"
-                        "若您發現身邊道館正在開蛋，可直接在此輸入指令回報：\n\n"
-                        "👉 格式：`回報 [頭目名稱] [道館名稱] [剩餘分鐘]`\n"
-                        "💡 範例：`回報 蒼響 台北101 35`\n\n"
-                        "回報後，周邊訓練家發送定位即可在 5km 雷達中查到！"
-                    )
-                    safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
-                    return
+                msg = (
+                    "⚠️ 【玩家回報功能已取消下線】\n\n"
+                    "系統現已改為全面由官方 Campfire 即時地圖與 5km 雷達自動掃描道館，不再需要玩家手動回報。\n\n"
+                    "💡 推薦使用方式：\n"
+                    "直接輸入寶可夢名稱（例如 `蒼響`、`超夢`），並點擊「傳送定位」，機器人會立即為您找出方圓 5km 內的現場團體戰！"
+                )
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
+                return
 
             # 晨報推播訂閱與特定寶可夢訂閱下線處理
             clean_cmd = re.sub(r"[\s\-_]+", "", user_text.strip())
@@ -689,7 +656,7 @@ def handle_text(event: MessageEvent):
                     "• 🔥 今日頭目清單：輸入 `團體戰`\n"
                     "• 📅 官方最新活動：輸入 `活動`\n"
                     "• 📊 討伐指南：輸入 `查詢 蒼響`\n"
-                    "• 📢 社群即時回報：輸入 `回報 蒼響 台北車站 35`\n"
+                    "• 🌅 每日晨報速報：輸入 `晨報`\n"
                     "• 💡 查看全部指令：輸入 `幫助`"
                 )
                 safe_reply(
