@@ -135,12 +135,30 @@ def test_daily_digest_cron_endpoint():
     assert "preview_text" in res_json
 
 def test_line_digest_commands():
-    """測試 LINE 輸入「晨報」與「訂閱 晨報」指令"""
+    """測試 LINE 輸入「晨報」、「訂閱 晨報」、「取消訂閱 晨報」、「訂閱 蒼響」、「我的訂閱」等指令"""
     resp1 = _send_mock_line_message("晨報")
     assert resp1.status_code == 200
 
     resp2 = _send_mock_line_message("訂閱 晨報")
     assert resp2.status_code == 200
+
+    resp3 = _send_mock_line_message("訂閱 蒼響")
+    assert resp3.status_code == 200
+
+    resp4 = _send_mock_line_message("取消訂閱 蒼響")
+    assert resp4.status_code == 200
+
+    resp5 = _send_mock_line_message("我的訂閱")
+    assert resp5.status_code == 200
+
+    resp6 = _send_mock_line_message("取消訂閱 晨報")
+    assert resp6.status_code == 200
+
+    resp7 = _send_mock_line_message("幫助")
+    assert resp7.status_code == 200
+
+    from app.services.subscription_service import subscription_service
+    subscription_service.remove_user("Utestuser12345")
 
 def test_ended_events_filtered_and_date_labels_present():
     """測試已經結束的活動徹底被過濾排除，且活動均包含舉辦日期繁中標籤"""

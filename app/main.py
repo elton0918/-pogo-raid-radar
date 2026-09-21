@@ -341,10 +341,7 @@ def handle_text(event: MessageEvent):
                     "📢 社群即時回報：\n"
                     "輸入 `回報 蒼響 大安森林公園 35`，將現場資訊分享給周遭玩家。\n\n"
                     "📊 戰前圖鑑與 IV 查詢：\n"
-                    "輸入 `查詢 蒼響` 或 `打手 蒼響`，可快速查看推薦剋星與 100% IV CP 值。\n\n"
-                    "🔔 訂閱開蛋推播：\n"
-                    "輸入 `訂閱 蒼響`，當有人回報時您會第一時間收到推播！\n"
-                    "（其他管理指令：`取消訂閱 蒼響`、`我的訂閱`）"
+                    "輸入 `查詢 蒼響` 或 `打手 蒼響`，可快速查看推薦剋星與 100% IV CP 值。"
                 )
                 safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                 return
@@ -391,45 +388,66 @@ def handle_text(event: MessageEvent):
                     safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                     return
 
-            # 新增: 訂閱指令
-            if user_text.startswith("訂閱"):
-                keyword = user_text[2:].strip()
-                if keyword in ["晨報", "每日晨報", "早報"]:
-                    subscription_service.remove_subscription(user_id, "取消晨報")
-                    subscription_service.add_subscription(user_id, "晨報")
-                    msg = "🌅 成功訂閱【每日晨報】！\n每天早上 08:00 將自動為您推播當日重點開蛋頭目與官方限時活動速報。"
-                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
-                    return
-                elif keyword:
-                    if subscription_service.add_subscription(user_id, keyword):
-                        msg = f"🔔 成功訂閱關鍵字：【{keyword}】\n當有符合該名稱的頭目或道館回報時，您將會收到推播通知！"
-                    else:
-                        msg = f"⚠️ 您已經訂閱過【{keyword}】了。"
-                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
-                    return
+            # 晨報推播訂閱與特定寶可夢訂閱下線處理
+            clean_cmd = re.sub(r"[\s\-_]+", "", user_text.strip())
 
+            # 1) 訂閱晨報
+            if clean_cmd in ["訂閱晨報", "開啟晨報", "訂閱每日晨報", "訂閱早報"]:
+                subscription_service.set_digest_subscription(user_id, True)
+                msg = (
+                    "🌅 成功開啟【每日晨報】！\n"
+                    "每天早上 08:00 將自動為您推播當日重點開蛋頭目與官方限時活動速報。\n\n"
+                    "💡 提示：隨時輸入 `晨報` 亦可即時查閱最新內容。"
+                )
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
+                return
+
+            # 2) 取消訂閱晨報 或 取消所有訂閱
+            if clean_cmd in ["取消訂閱晨報", "關閉晨報", "取消晨報", "不收晨報", "取消訂閱", "全部取消訂閱"]:
+                subscription_service.set_digest_subscription(user_id, False)
+                msg = (
+                    "🔕 已為您關閉【每日晨報】自動推播通知。\n"
+                    "若日後想重新開啟，隨時輸入 `訂閱 晨報` 即可。"
+                )
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
+                return
+
+            # 3) 輸入「訂閱」或「訂閱 [寶可夢]」
+            if user_text.startswith("訂閱"):
+                msg = (
+                    "⚠️ 【特定寶可夢訂閱功能已取消下線】\n\n"
+                    "因 Campfire 官方未開放後台自動開蛋推播 API，且受限於 LINE 每月免費推播額度，原「特定寶可夢回報訂閱」已全面停止支援並取消。\n\n"
+                    "💡 推薦您改用以下方式：\n"
+                    "1. 📍 **現場 5km 雷達**：直接輸入寶可夢名稱（例如 `蒼響`），點擊發送位置資訊，立即掃描周邊 5km 內所有開蛋道館！\n"
+                    "2. 🌅 **每日 08:00 晨報**：輸入 `訂閱 晨報`，每天早上自動接收當日重點頭目與最新活動速報（隨時輸入 `晨報` 亦可查閱）。"
+                )
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
+                return
+
+            # 4) 輸入「取消訂閱 [關鍵字]」
             if user_text.startswith("取消訂閱"):
                 keyword = user_text[4:].strip()
-                if keyword in ["晨報", "每日晨報", "早報"]:
-                    subscription_service.remove_subscription(user_id, "晨報")
-                    subscription_service.add_subscription(user_id, "取消晨報")
-                    msg = "🔕 已為您取消【每日晨報】推播通知。"
-                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
-                    return
-                elif keyword:
-                    if subscription_service.remove_subscription(user_id, keyword):
-                        msg = f"🔕 已為您取消訂閱關鍵字：【{keyword}】"
-                    else:
-                        msg = f"⚠️ 您尚未訂閱【{keyword}】。"
-                    safe_reply(line_bot_api, event, [TextMessage(text=msg)])
-                    return
+                subscription_service.remove_subscription(user_id, keyword)
+                msg = (
+                    f"🔕 已為您移除【{keyword}】相關設定。\n"
+                    f"（特定寶可夢訂閱功能已全面下線，您不會再收到相關推播）"
+                )
+                safe_reply(line_bot_api, event, [TextMessage(text=msg)])
+                return
 
+            # 5) 我的訂閱
             if user_text == "我的訂閱":
-                subs = [s for s in subscription_service.get_user_subscriptions(user_id) if not s.startswith("取消")]
-                if subs:
-                    msg = "📋 您目前訂閱的項目有：\n" + "\n".join(f"- {s}" for s in subs)
-                else:
-                    msg = "📋 您目前沒有任何訂閱項目（可輸入「訂閱 蒼響」或「訂閱 晨報」）。"
+                is_digest = subscription_service.is_digest_subscribed(user_id)
+                digest_status = "開啟中 ✅ (每天 08:00 自動推播)" if is_digest else "已關閉 🔕"
+                msg = (
+                    f"📋 【您的推播訂閱狀態】\n\n"
+                    f"🌅 每日晨報 (08:00)：{digest_status}\n\n"
+                    f"💡 指令說明：\n"
+                    f"• 開啟晨報：輸入 `訂閱 晨報`\n"
+                    f"• 關閉晨報：輸入 `取消訂閱 晨報`\n"
+                    f"• 查看晨報：輸入 `晨報` (隨時手動查閱)\n\n"
+                    f"註：特定寶可夢訂閱功能已下線，請直接輸入寶可夢名稱並發送定位進行 5km 雷達搜尋。"
+                )
                 safe_reply(line_bot_api, event, [TextMessage(text=msg)])
                 return
 
