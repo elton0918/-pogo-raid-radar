@@ -22,7 +22,9 @@ EVENT_TAG_MAPPINGS = {
     "raid hour": ("⚔️ 團體戰晚餐會", "#EA580C"),
     "raid battles": ("⚔️ 團體戰輪替", "#2563EB"),
     "max mondays": ("💥 極巨星期一", "#7C3AED"),
+    "max monday": ("💥 極巨星期一", "#7C3AED"),
     "max battles": ("💥 極巨對戰", "#7C3AED"),
+    "max battle day": ("💥 極巨對戰日", "#7C3AED"),
     "community day": ("🎉 社群日", "#059669"),
     "pokémon spotlight hour": ("✨ 寶可夢聚焦時刻", "#D97706"),
     "spotlight hour": ("✨ 寶可夢聚焦時刻", "#D97706"),
@@ -32,6 +34,10 @@ EVENT_TAG_MAPPINGS = {
     "season": ("🍂 賽季活動", "#6B7280"),
     "go battle league": ("🥊 對戰聯盟", "#B91C1C"),
     "research": ("📜 調查課題", "#475569"),
+    "timed research": ("📜 限時調查", "#475569"),
+    "special research": ("📜 特殊調查", "#475569"),
+    "go pass": ("🎫 GO 通行證", "#0891B2"),
+    "choose your path": ("🧭 冒險路線", "#059669"),
 }
 
 class EventsService:
@@ -58,7 +64,7 @@ class EventsService:
         for key, (zh, color) in EVENT_TAG_MAPPINGS.items():
             if key in tag_lower:
                 return (zh, color)
-        return (f"📌 {raw_tag.strip()}", "#4B5563")
+        return ("📌 官方活動", "#4B5563")
 
     def _translate_event_title(self, title_en: str) -> tuple[str, List[str]]:
         """
@@ -69,7 +75,113 @@ class EventsService:
         res = title_en
         featured_pokemon = []
 
-        # 優先由長到短比對英文寶可夢名稱，替換為中文並記錄
+        # 1. 完整專屬活動與合作活動片語優先替換 (長片語優先)
+        special_phrases = [
+            ("Pokémon Horizons: The Series Celebration Event", "《寶可夢地平線：系列》慶祝活動"),
+            ("Pokémon Horizons Bonus Timed Research", "《寶可夢地平線》加碼限時調查"),
+            ("LEGO Stores and Pokémon GO", "樂高門市 x Pokémon GO 合作活動"),
+            ("LEGO Stores & Pokémon GO", "樂高門市 x Pokémon GO 合作活動"),
+            ("LEGO Stores", "樂高門市"),
+            ("Choose Your Path: Twilight Trails", "選擇你的道路：秋暮小徑"),
+            ("Choose Your Path", "選擇你的道路"),
+            ("Patterns of the Wild", "狂野圖騰"),
+            ("Fall Marathon: Buddy Trek", "秋季馬拉松：夥伴健行"),
+            ("World Space Week", "世界太空週"),
+            ("Harvest Festival 2026: Applin Picking", "豐收祭 2026：採收啃果蟲"),
+            ("Harvest Festival: Taken Over", "豐收祭：火箭隊佔領"),
+            ("Harvest Festival", "豐收祭"),
+            ("Applin Picking", "採收啃果蟲"),
+            ("Super Mega Raid Day", "極致超級團體戰日"),
+            ("Mega Raid Day", "超級團體戰日"),
+            ("Raid Day", "團體戰日"),
+            ("Raid Hour", "團體戰晚餐會"),
+            ("Max Battle Day", "極巨對戰日"),
+            ("Max Battles", "極巨對戰"),
+            ("Max Mondays", "極巨星期一"),
+            ("Max Monday", "極巨星期一"),
+            ("Pokémon Spotlight Hour", "寶可夢聚焦時刻"),
+            ("Spotlight Hour", "聚焦時刻"),
+            ("Community Day", "社群日"),
+            ("Catch Mastery", "捕捉精通"),
+            ("Hatch Day", "孵化日"),
+            ("Wild Area 2026: Sendai • Tohoku", "曠野地帶 2026：仙台・東北"),
+            ("Wild Area 2026: Mexico City", "曠野地帶 2026：墨西哥城"),
+            ("Wild Area 2026: Global", "曠野地帶 2026：全球"),
+            ("Sendai • Tohoku", "仙台・東北"),
+            ("Mexico City", "墨西哥城"),
+            ("Wild Area", "曠野地帶"),
+            ("Twilight Trails", "秋暮小徑"),
+            ("GO Pass", "GO 通行證"),
+            ("Bonus Timed Research", "加碼限時調查"),
+            ("Timed Research", "限時調查"),
+            ("Special Research", "特殊調查"),
+            ("Field Research", "田野調查"),
+            ("Research Day", "調查日"),
+            ("Celebration Event", "慶祝活動"),
+            ("Celebration", "慶祝活動"),
+            ("in 5-star Raid Battles", "5星傳奇團體戰"),
+            ("in 5-star Raids", "5星傳奇團體戰"),
+            ("in Mega Raids", "超級團體戰"),
+            ("in Shadow Raids", "暗影團體戰"),
+            ("during", " "),
+            ("Taken Over", "火箭隊佔領"),
+            ("Great League: Mega Edition", "超級聯盟：超級進化版"),
+            ("Ultra League: Mega Edition", "高級聯盟：超級進化版"),
+            ("Master League: Mega Edition", "大師聯盟：超級進化版"),
+            ("Great League Edition", "超級聯盟版"),
+            ("Ultra League Edition", "高級聯盟版"),
+            ("Master League Edition", "大師聯盟版"),
+            ("Great League", "超級聯盟"),
+            ("Ultra League", "高級聯盟"),
+            ("Master League", "大師聯盟"),
+            ("Mega Edition", "超級進化版"),
+            ("Willpower Cup", "意志盃"),
+            ("Retro Cup", "復古盃"),
+            ("Mega Color Cup", "超級色彩盃"),
+            ("Color Cup", "色彩盃"),
+            ("Mega Halloween Cup", "超級萬聖節盃"),
+            ("Halloween Cup", "萬聖節盃"),
+            ("Fantasy Cup", "奇幻盃"),
+            ("Mega Catch Cup", "超級捕捉盃"),
+            ("Catch Cup", "捕捉盃"),
+            ("Little Cup", "小小盃"),
+            ("2026 GO LAIC Cup", "2026 GO 拉丁美洲國際錦標賽盃 (LAIC)"),
+            ("Halloween", "萬聖節活動"),
+            ("Part II", "第 2 部分"),
+            ("Part I", "第 1 部分"),
+            ("Global", "全球"),
+            ("January", "1月"), ("February", "2月"), ("March", "3月"),
+            ("April", "4月"), ("May", "5月"), ("June", "6月"),
+            ("July", "7月"), ("August", "8月"), ("September", "9月"),
+            ("October", "10月"), ("November", "11月"), ("December", "12月"),
+            ("Local Time", "當地時間"),
+        ]
+        for en_p, zh_p in special_phrases:
+            res = re.sub(re.escape(en_p), zh_p, res, flags=re.I)
+
+        # 2. 形態括號比對替換
+        form_map = {
+            r'\(Hero of Many Battles\)': '(百戰勇者)',
+            r'\(Hero\)': '(百戰勇者)',
+            r'\(Incarnate Forme\)': '(化身形態)',
+            r'\(Incarnate\)': '(化身形態)',
+            r'\(Therian Forme\)': '(靈獸形態)',
+            r'\(Therian\)': '(靈獸形態)',
+            r'\(Origin Forme\)': '(起源形態)',
+            r'\(Origin\)': '(起源形態)',
+            r'\(Altered Forme\)': '(別種形態)',
+            r'\(Altered\)': '(別種形態)',
+            r'\(Crowned Sword\)': '(劍之王)',
+            r'\(Crowned Shield\)': '(盾之王)',
+            r'\(Dawn Wings\)': '(拂曉之翼)',
+            r'\(Dusk Mane\)': '(黃昏之鬃)',
+            r'\(Standard Forme\)': '(一般形態)',
+            r'\(Standard\)': '(一般形態)',
+        }
+        for en_f, zh_f in form_map.items():
+            res = re.sub(en_f, zh_f, res, flags=re.I)
+
+        # 3. 優先由長到短比對英文寶可夢名稱，替換為中文並記錄主打寶可夢
         sorted_en = sorted(pokemon_data.EN_TO_ZH_DICT.keys(), key=lambda x: len(x), reverse=True)
         for en in sorted_en:
             pattern = r'\b' + re.escape(en) + r'\b'
@@ -79,48 +191,30 @@ class EventsService:
                     featured_pokemon.append(zh)
                 res = re.sub(pattern, zh, res, flags=re.I)
 
-        # 替換常見活動字眼
-        replacements = [
-            ("Super Mega Raid Day", "極致超級團體戰日"),
-            ("Mega Raid Day", "超級團體戰日"),
-            ("Raid Day", "團體戰日"),
-            ("Raid Hour", "團體戰晚餐會"),
-            ("Max Mondays", "極巨星期一"),
-            ("Max Monday", "極巨星期一"),
-            ("Max Battle Day", "極巨對戰日"),
-            ("Max Battles", "極巨對戰"),
-            ("Pokémon Spotlight Hour", "聚焦時刻"),
-            ("Spotlight Hour", "聚焦時刻"),
-            ("Community Day", "社群日"),
-            ("in 5-star Raid Battles", "5星傳奇團體戰"),
-            ("in 5-star Raids", "5星傳奇團體戰"),
-            ("in Mega Raids", "超級團體戰"),
-            ("in Shadow Raids", "暗影團體戰"),
-            ("Catch Mastery", "捕捉精通"),
-            ("Harvest Festival", "豐收祭"),
-            ("Taken Over", "火箭隊佔領"),
-            ("Halloween", "萬聖節活動"),
-            ("Hatch Day", "孵化日"),
-            ("Wild Area", "曠野地帶"),
-            ("Great League", "超級聯盟"),
-            ("Ultra League", "高級聯盟"),
-            ("Master League", "大師聯盟"),
-            ("Mega Edition", "超級進化版本"),
-            ("during", "期間"),
-            ("Dynamax", "極巨化"),
-            ("Gigantamax", "超極巨化"),
-            ("Shadow", "暗影"),
-            ("Mega", "超級"),
-            ("Local Time", "當地時間"),
+        # 4. 前綴字眼與多餘空白修正 (超級、暗影、極巨化無縫銜接寶可夢中文名)
+        prefix_fixes = [
+            (r'\bMega\b', '超級'),
+            (r'\bShadow\b', '暗影'),
+            (r'\bDynamax\b', '極巨化'),
+            (r'\bGigantamax\b', '超極巨化'),
+            (r'超級\s+', '超級'),
+            (r'暗影\s+', '暗影'),
+            (r'極巨化\s+', '極巨化'),
+            (r'超極巨化\s+', '超極巨化'),
+            (r'超級噴火龍\s+X', '超級噴火龍X'),
+            (r'超級噴火龍\s+Y', '超級噴火龍Y'),
+            (r'極巨化\s*極巨對戰日', '極巨對戰日'),
+            (r'(\d+月)\s*社群日', r'\1社群日'),
         ]
+        for p_en, p_zh in prefix_fixes:
+            res = re.sub(p_en, p_zh, res, flags=re.I)
 
-        for en_phrase, zh_phrase in replacements:
-            res = re.sub(re.escape(en_phrase), zh_phrase, res, flags=re.I)
-
-        # 清理多餘空白與逗號連接
-        res = re.sub(r'\s+,', ',', res)
+        # 5. 連接詞與標點符號標準化 (全中文頓號、全形冒號、全形直槓)
         res = re.sub(r',\s*and\s+', '、', res, flags=re.I)
         res = re.sub(r'\s+and\s+', '、', res, flags=re.I)
+        res = re.sub(r',\s*', '、', res)
+        res = re.sub(r'\s*\|\s*', '｜', res)
+        res = re.sub(r'\s*:\s*', '：', res)
         res = re.sub(r'\s+', ' ', res).strip()
 
         return res, featured_pokemon

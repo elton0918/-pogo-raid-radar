@@ -174,23 +174,23 @@ class TodayRaidsService:
         """
         raw = raw_title.lower()
         if "mega" in raw:
-            return ("🧬 超級團體戰 (Mega Raids)", "MEGA", "#059669")
+            return ("🧬 超級團體戰", "MEGA", "#059669")
         elif "5-star" in raw or "5 star" in raw or "tier 5" in raw:
             if is_shadow:
-                return ("🌑 5星暗影傳奇團體戰 (Shadow T5)", "SHADOW 5★", "#6B21A8")
-            return ("⭐️ 5星傳說團體戰 (Tier 5)", "TIER 5★", "#1E3A8A")
+                return ("🌑 5星暗影傳奇團體戰", "SHADOW 5★", "#6B21A8")
+            return ("⭐️ 5星傳說團體戰", "TIER 5★", "#1E3A8A")
         elif "3-star" in raw or "3 star" in raw or "tier 3" in raw:
             if is_shadow:
-                return ("🌑 3星暗影團體戰 (Shadow T3)", "SHADOW 3★", "#7C3AED")
-            return ("⚔️ 3星團體戰 (Tier 3)", "TIER 3★", "#2563EB")
+                return ("🌑 3星暗影團體戰", "SHADOW 3★", "#7C3AED")
+            return ("⚔️ 3星團體戰", "TIER 3★", "#2563EB")
         elif "1-star" in raw or "1 star" in raw or "tier 1" in raw:
             if is_shadow:
-                return ("🌑 1星暗影團體戰 (Shadow T1)", "SHADOW 1★", "#8B5CF6")
-            return ("🐣 1星團體戰 (Tier 1)", "TIER 1★", "#3B82F6")
+                return ("🌑 1星暗影團體戰", "SHADOW 1★", "#8B5CF6")
+            return ("🐣 1星團體戰", "TIER 1★", "#3B82F6")
         elif "elite" in raw:
-            return ("👑 菁英團體戰 (Elite Raids)", "ELITE", "#DC2626")
+            return ("👑 菁英團體戰", "ELITE", "#DC2626")
         elif "ultra beast" in raw:
-            return ("🌌 究極異獸 (Ultra Beast)", "UB", "#4F46E5")
+            return ("🌌 究極異獸團體戰", "UB", "#4F46E5")
         else:
             prefix = "🌑 暗影 " if is_shadow else ""
             return (f"{prefix}{raw_title}", "RAID", "#4B5563")
@@ -402,7 +402,7 @@ class TodayRaidsService:
         """離線內建高品質備援名單 (防斷線機制)"""
         return [
             {
-                "tier_title": "⭐️ 5星傳說團體戰 (Tier 5)",
+                "tier_title": "⭐️ 5星傳說團體戰",
                 "tier_raw": "5-Star Raids",
                 "badge": "TIER 5★",
                 "color": "#1E3A8A",
@@ -421,7 +421,7 @@ class TodayRaidsService:
                 ]
             },
             {
-                "tier_title": "🧬 超級團體戰 (Mega Raids)",
+                "tier_title": "🧬 超級團體戰",
                 "tier_raw": "Mega Raids",
                 "badge": "MEGA",
                 "color": "#059669",
@@ -440,7 +440,7 @@ class TodayRaidsService:
                 ]
             },
             {
-                "tier_title": "🌑 5星暗影傳奇團體戰 (Shadow T5)",
+                "tier_title": "🌑 5星暗影傳奇團體戰",
                 "tier_raw": "Shadow 5-Star Raids",
                 "badge": "SHADOW 5★",
                 "color": "#6B21A8",
@@ -459,7 +459,7 @@ class TodayRaidsService:
                 ]
             },
             {
-                "tier_title": "🌑 3星暗影團體戰 (Shadow T3)",
+                "tier_title": "🌑 3星暗影團體戰",
                 "tier_raw": "Shadow 3-Star Raids",
                 "badge": "SHADOW 3★",
                 "color": "#7C3AED",
@@ -471,7 +471,7 @@ class TodayRaidsService:
                 ]
             },
             {
-                "tier_title": "🌑 1星暗影團體戰 (Shadow T1)",
+                "tier_title": "🌑 1星暗影團體戰",
                 "tier_raw": "Shadow 1-Star Raids",
                 "badge": "SHADOW 1★",
                 "color": "#8B5CF6",

@@ -790,7 +790,7 @@ def create_daily_digest_flex(today_raids_data: Dict[str, Any], events_data: Dict
             boss_names.append(f"{b.get('name_zh')}{shiny}")
 
         names_text = "、".join(boss_names)
-        cp_text = f"CP {bosses[0].get('cp_range')}" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
+        cp_text = f"戰鬥力 CP {bosses[0].get('cp_range')}" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
 
         line_box = {
             "type": "box",
@@ -1037,7 +1037,7 @@ def format_daily_digest_text(today_raids_data: Dict[str, Any], events_data: Dict
         if not bosses:
             continue
         names = "、".join([f"{b.get('name_zh')}{' ✨' if b.get('shiny_available') else ''}" for b in bosses[:2]])
-        cp = f" [CP {bosses[0].get('cp_range')}]" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
+        cp = f" [戰鬥力 CP {bosses[0].get('cp_range')}]" if bosses[0].get('cp_range') and bosses[0].get('cp_range') != "限時開蛋" else ""
         lines.append(f"• {tier_title}：{names}{cp}")
 
     lines.append("\n🔥 【今日進行中活動】：")

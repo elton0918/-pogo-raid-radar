@@ -102,11 +102,102 @@ FORM_TRANSLATIONS: Dict[str, str] = {
     "dawn wings": "拂曉之翼",
     "dusk mane": "黃昏之鬃",
     "standard": "一般形態",
+    "standard forme": "一般形態",
     "normal": "一般形態",
     "speed": "速度形態",
+    "speed forme": "速度形態",
     "attack": "攻擊形態",
+    "attack forme": "攻擊形態",
     "defense": "防禦形態",
+    "defense forme": "防禦形態",
+    "plant cloak": "草木蓑衣",
+    "sandy cloak": "砂土蓑衣",
+    "trash cloak": "垃圾蓑衣",
+    "overcast": "陰天形態",
+    "sunshine": "晴天形態",
+    "east sea": "東海",
+    "west sea": "西海",
+    "heat": "加熱洛托姆",
+    "wash": "清洗洛托姆",
+    "frost": "結冰洛托姆",
+    "fan": "旋轉洛托姆",
+    "mow": "切割洛托姆",
+    "red-striped": "紅條紋",
+    "blue-striped": "藍條紋",
+    "white-striped": "白條紋",
 }
+
+COSTUME_PREFIX_MAP: List[tuple[str, str]] = [
+    ("captain's cap", "船長帽"),
+    ("captain cap", "船長帽"),
+    ("party hat", "派對帽"),
+    ("santa hat", "聖誕帽"),
+    ("winter hat", "冬季帽"),
+    ("cowboy hat", "牛仔帽"),
+    ("witch hat", "巫師帽"),
+    ("cake hat", "蛋糕帽"),
+    ("straw hat", "草帽"),
+    ("lucario hat", "路卡利歐帽"),
+    ("charizard hat", "噴火龍帽"),
+    ("rayquaza hat", "烈空坐帽"),
+    ("umbreon hat", "月亮伊布帽"),
+    ("flower crown", "花環"),
+    ("crown", "王冠"),
+    ("detective", "名偵探"),
+    ("balloon", "氣球"),
+    ("flying", "飛翔"),
+    ("explorer", "探險家"),
+    ("beanie", "毛線帽"),
+    ("bow", "蝴蝶結"),
+    ("ribbon", "蝴蝶結"),
+    ("bandana", "頭巾"),
+    ("sunglasses", "墨鏡"),
+    ("costume", "裝扮"),
+    ("holiday", "節日"),
+    ("halloween", "萬聖節"),
+    ("fashion", "時尚"),
+    ("world cap", "世界帽"),
+    ("original cap", "初始帽"),
+    ("hoenn cap", "豐緣帽"),
+    ("sinnoh cap", "神奧帽"),
+    ("unova cap", "合眾帽"),
+    ("kalos cap", "卡洛斯帽"),
+    ("alola cap", "阿羅拉帽"),
+    ("top hat", "禮帽"),
+    ("bowler hat", "圓頂禮帽"),
+    ("sun hat", "遮陽帽"),
+    ("nightcap", "睡帽"),
+]
+
+WEARING_ACCESSORY_MAP: List[tuple[str, str]] = [
+    ("friede's goggles", "弗里德護目鏡"),
+    ("a party hat", "派對帽"),
+    ("party hat", "派對帽"),
+    ("a santa hat", "聖誕帽"),
+    ("santa hat", "聖誕帽"),
+    ("a witch hat", "巫師帽"),
+    ("witch hat", "巫師帽"),
+    ("a cowboy hat", "牛仔帽"),
+    ("cowboy hat", "牛仔帽"),
+    ("a flower crown", "花環"),
+    ("flower crown", "花環"),
+    ("a crown", "王冠"),
+    ("crown", "王冠"),
+    ("a bow tie", "領結"),
+    ("bow tie", "領結"),
+    ("a bow", "蝴蝶結"),
+    ("bow", "蝴蝶結"),
+    ("a scarf", "圍巾"),
+    ("scarf", "圍巾"),
+    ("a beanie", "毛線帽"),
+    ("beanie", "毛線帽"),
+    ("a bandana", "頭巾"),
+    ("bandana", "頭巾"),
+    ("sunglasses", "墨鏡"),
+    ("glasses", "眼鏡"),
+    ("a costume", "特殊裝扮"),
+    ("costume", "特殊裝扮"),
+]
 
 def translate_type(type_en: str) -> str:
     """將英文寶可夢屬性翻譯為繁體中文"""
@@ -122,8 +213,10 @@ def translate_weather(weather_en: str) -> str:
 
 def translate_pokemon_name(raw_name: str) -> str:
     """
-    將英文或特殊形態寶可夢名稱翻譯為繁體中文
+    將英文或特殊形態/服飾寶可夢名稱翻譯為繁體中文
     例如：
+      - Captain's Cap Pikachu -> 船長帽皮卡丘
+      - Charizard wearing Friede's goggles -> 戴著弗里德護目鏡的噴火龍
       - Zamazenta (Hero) -> 藏瑪然特 (百戰勇者)
       - Mega Venusaur -> 超級妙蛙花
       - Shadow Machop -> 暗影腕力
@@ -135,15 +228,31 @@ def translate_pokemon_name(raw_name: str) -> str:
         
     _load_database()
     cleaned = raw_name.strip()
+
+    # 1. 檢查 "wearing ..." 配件模式，例如 "Charizard wearing Friede's goggles"
+    wear_match = re.match(r'^(.*?)\s+wearing\s+(.*)$', cleaned, re.I)
+    if wear_match:
+        base_part = wear_match.group(1).strip()
+        accessory_part = wear_match.group(2).strip()
+        base_zh = translate_pokemon_name(base_part)
+        acc_zh = accessory_part
+        for en_acc, zh_acc in WEARING_ACCESSORY_MAP:
+            if en_acc == accessory_part.lower() or en_acc in accessory_part.lower():
+                acc_zh = zh_acc
+                break
+        return f"戴著{acc_zh}的{base_zh}"
+
     prefix = ""
     lower = cleaned.lower()
     
+    # 2. 核心前綴 (超級、原始、暗影、地區形態)
     for en_p, zh_p in PREFIX_TRANSLATIONS:
         if lower.startswith(en_p):
             prefix += zh_p
             cleaned = cleaned[len(en_p):].strip()
             lower = cleaned.lower()
             
+    # 3. 括號形態 (百戰勇者、化身形態等)
     form_suffix = ""
     match = re.search(r'\((.*?)\)', cleaned)
     if match:
@@ -152,19 +261,36 @@ def translate_pokemon_name(raw_name: str) -> str:
         matched_form = FORM_TRANSLATIONS.get(form_content, match.group(1).strip())
         form_suffix = f" ({matched_form})"
         cleaned = cleaned_base
+
+    # 4. 特殊服裝前綴比對 (例如 "Captain's Cap Pikachu" -> 船長帽皮卡丘)
+    costume_prefix = ""
+    cleaned_lower = cleaned.lower()
+    for en_costume, zh_costume in COSTUME_PREFIX_MAP:
+        if cleaned_lower.startswith(en_costume + " "):
+            costume_prefix = zh_costume
+            cleaned = cleaned[len(en_costume):].strip()
+            break
         
     base_zh = EN_TO_ZH_DICT.get(cleaned.lower(), cleaned)
-    return f"{prefix}{base_zh}{form_suffix}"
+    return f"{prefix}{costume_prefix}{base_zh}{form_suffix}"
 
 def clean_pokemon_name(name: str) -> str:
     """
-    清理寶可夢名稱的前後綴（如「暗影」、「超級」、「原始」、「(百戰勇者)」等），
+    清理寶可夢名稱的前後綴（如「暗影」、「超級」、「原始」、「船長帽」、「戴著...的」、「(百戰勇者)」等），
     取得核心基礎中文名稱，便於發動雷達搜尋或打手圖鑑查詢。
     """
     if not name:
         return ""
     cleaned = name.strip()
-    for prefix in ["暗影", "超級", "原始", "阿羅拉", "伽勒爾", "洗翠", "帕底亞"]:
+    # 移除 "戴著...的"
+    cleaned = re.sub(r'^戴著.*?的', '', cleaned).strip()
+    costume_prefixes = [
+        "暗影", "超級", "原始", "阿羅拉", "伽勒爾", "洗翠", "帕底亞",
+        "船長帽", "派對帽", "聖誕帽", "冬季帽", "牛仔帽", "巫師帽", "蛋糕帽",
+        "草帽", "花環", "王冠", "名偵探", "氣球", "飛翔", "探險家", "毛線帽",
+        "蝴蝶結", "頭巾", "墨鏡", "裝扮", "節日", "萬聖節", "時尚", "世界帽"
+    ]
+    for prefix in costume_prefixes:
         if cleaned.startswith(prefix):
             cleaned = cleaned[len(prefix):].strip()
     cleaned = re.sub(r'\(.*?\)', '', cleaned).strip()

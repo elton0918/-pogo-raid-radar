@@ -30,6 +30,24 @@ def test_event_title_translation():
     assert "火焰鳥" in featured2
     assert "極巨星期一" in title2
 
+    title3, _ = events_service._translate_event_title("Pokémon Horizons: The Series Celebration Event 2026")
+    assert "《寶可夢地平線：系列》慶祝活動 2026" in title3
+
+    title4, _ = events_service._translate_event_title("LEGO Stores and Pokémon GO")
+    assert "樂高門市 x Pokémon GO 合作活動" in title4
+
+    title5, feat5 = events_service._translate_event_title("Xurkitree, Pheromosa, and Buzzwole Raid Hour")
+    assert "電束木、費洛美螂、爆肌蚊 團體戰晚餐會" in title5
+    assert "電束木" in feat5 and "費洛美螂" in feat5 and "爆肌蚊" in feat5
+
+def test_costume_pokemon_translation():
+    """測試特殊裝扮與配件寶可夢名稱中文化"""
+    from app.data.pokemon_data import translate_pokemon_name, clean_pokemon_name
+    assert translate_pokemon_name("Captain's Cap Pikachu") == "船長帽皮卡丘"
+    assert clean_pokemon_name("船長帽皮卡丘") == "皮卡丘"
+    assert translate_pokemon_name("Charizard wearing Friede's goggles") == "戴著弗里德護目鏡的噴火龍"
+    assert clean_pokemon_name("戴著弗里德護目鏡的噴火龍") == "噴火龍"
+
 def test_events_service_fetch():
     """測試活動服務資料取得與快取"""
     data = events_service.get_events()
@@ -125,6 +143,9 @@ def test_daily_digest_flex_and_text():
     assert container is not None
     text = format_daily_digest_text(today_raids, events)
     assert "每日晨報" in text
+    assert "Tier 1" not in text
+    assert "Tier 5" not in text
+    assert "戰鬥力 CP" in text
 
 def test_daily_digest_cron_endpoint():
     """測試 /cron/daily-digest 端點預覽模式"""
