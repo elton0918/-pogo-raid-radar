@@ -561,7 +561,7 @@ def format_today_raids_text(today_raids_data: Dict[str, Any]) -> str:
         lines.append("")
 
     lines.append("💡 提示：輸入寶可夢名稱（例如「藏瑪然特」）並發送定位，即可搜尋 5km 內道館！")
-    lines.append("輸入「查詢 藏瑪然特」可查看推薦打手與屬性弱點。")
+    lines.append("輸入「查詢 藏瑪然特」可查看推薦打手、建議配招與屬性弱點。")
     return "\n".join(lines)
 
 

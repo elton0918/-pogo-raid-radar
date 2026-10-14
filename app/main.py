@@ -338,8 +338,8 @@ def handle_text(event: MessageEvent):
                     "每天早上 08:00 自動推播今日開蛋與限時活動速報！（可輸入 `晨報` 隨時查閱，或 `訂閱 晨報` / `取消訂閱 晨報`）\n\n"
                     "📍 尋找團體戰：\n"
                     "直接輸入寶可夢名稱（例如 `蒼響`），機器人會提示您發送「位置資訊」，並找出方圓 5km 內的團體戰。\n\n"
-                    "📊 戰前圖鑑與 IV 查詢：\n"
-                    "輸入 `查詢 蒼響` 或 `打手 蒼響`，可快速查看推薦剋星與 100% IV CP 值。"
+                    "📊 戰前圖鑑與配招查詢：\n"
+                    "輸入 `查詢 蒼響`、`打手 蒼響` 或 `配招 蒼響`，可快速查看屬性弱點、推薦打手、建議配招 (PvE/PvP) 與 100% IV CP 值。"
                 )
                 safe_reply(line_bot_api, event, [TextMessage(text=help_text)])
                 return
@@ -456,14 +456,27 @@ def handle_text(event: MessageEvent):
                     f.write(f"[HANDLE_TEXT DIGEST SUCCESS] reply sent\n")
                 return
 
-            # 新增: 圖鑑查詢指令
-            if user_text.startswith("查詢") or user_text.startswith("打手"):
-                pokemon_name = user_text.replace("查詢", "").replace("打手", "").strip()
+            # 新增: 圖鑑、打手與建議配招查詢指令 (支援前綴如「配招 超夢」或後綴如「超夢 配招」、「超夢配招」)
+            query_keywords = ["查詢", "打手", "配招", "招式", "技能"]
+            is_info_query = False
+            pokemon_name = ""
+
+            for kw in query_keywords:
+                if user_text.startswith(kw):
+                    is_info_query = True
+                    pokemon_name = user_text[len(kw):].strip()
+                    break
+                elif user_text.endswith(kw) and len(user_text) > len(kw):
+                    is_info_query = True
+                    pokemon_name = user_text[:-len(kw)].strip()
+                    break
+
+            if is_info_query:
                 if not pokemon_name:
                     help_msg = (
-                        "📊 【寶可夢圖鑑與討伐指南查詢】\n\n"
-                        "👉 請輸入 `查詢 [寶可夢名稱]` 或 `打手 [寶可夢名稱]`\n"
-                        "💡 範例：`查詢 蒼響`、`打手 超夢`"
+                        "📊 【寶可夢圖鑑、打手與建議配招查詢】\n\n"
+                        "👉 請輸入 `查詢 [寶可夢名稱]`、`打手 [寶可夢名稱]` 或 `配招 [寶可夢名稱]`\n"
+                        "💡 範例：`查詢 蒼響`、`打手 超夢`、`超夢 配招`"
                     )
                     res = safe_reply(
                         line_bot_api,
@@ -481,21 +494,36 @@ def handle_text(event: MessageEvent):
                     counters = info.get('counters', [])
                     boosted = info.get('boosted_weather', [])
                     dex_id = info.get('dex_id')
+                    moveset_pve = info.get('moveset_pve', '')
+                    moveset_pvp = info.get('moveset_pvp', '')
                     
                     header = f"📊 【{info.get('name', pokemon_name)}】"
                     if dex_id:
                         header += f" (圖鑑編號 #{dex_id})"
-                    header += " 討伐指南\n\n"
+                    header += " 討伐指南與建議配招\n\n"
 
-                    msg = (
-                        f"{header}"
-                        f"🔹 屬性：{', '.join(types)}\n"
-                        f"🔹 弱點：{', '.join(weaknesses)}\n"
-                        f"🔹 推薦打手：{', '.join(counters) if counters else '暫無特化打手資料'}\n\n"
-                        f"💯 100% IV CP：\n"
-                        f"一般天氣：{info.get('iv_100_normal', '未知')}\n"
+                    msg_lines = [
+                        header,
+                        f"🔹 屬性：{', '.join(types) if types else '未知'}",
+                        f"🔹 弱點：{', '.join(weaknesses) if weaknesses else '無'}",
+                        f"🔹 推薦打手：{', '.join(counters) if counters else '暫無特化打手資料'}\n"
+                    ]
+
+                    if moveset_pve or moveset_pvp:
+                        msg_lines.append("⚔️ 建議配招：")
+                        if moveset_pve:
+                            msg_lines.append(f"• 道館/團體戰 (PvE)：{moveset_pve}")
+                        if moveset_pvp:
+                            msg_lines.append(f"• 對戰聯盟 (PvP)：{moveset_pvp}")
+                        msg_lines.append("")
+
+                    msg_lines.extend([
+                        "💯 100% IV CP：",
+                        f"一般天氣：{info.get('iv_100_normal', '未知')}",
                         f"天氣加成：{info.get('iv_100_boosted', '未知')} ({', '.join(boosted) if boosted else '無'})"
-                    )
+                    ])
+
+                    msg = "\n".join(msg_lines)
                 else:
                     msg = f"❌ 找不到關於【{pokemon_name}】的資料，請確認名稱是否正確！"
 
@@ -655,7 +683,7 @@ def handle_text(event: MessageEvent):
                     "• 🔍 搜尋團體戰：直接輸入寶可夢名稱（例如 `蒼響`、`姆克鷹`）\n"
                     "• 🔥 今日頭目清單：輸入 `團體戰`\n"
                     "• 📅 官方最新活動：輸入 `活動`\n"
-                    "• 📊 討伐指南：輸入 `查詢 蒼響`\n"
+                    "• 📊 討伐與配招：輸入 `查詢 蒼響` 或 `配招 噴火龍`\n"
                     "• 🌅 每日晨報速報：輸入 `晨報`\n"
                     "• 💡 查看全部指令：輸入 `幫助`"
                 )
@@ -670,18 +698,29 @@ def handle_text(event: MessageEvent):
 
             user_query_cache[user_id] = target_pokemon
 
+            target_info = get_pokemon_info(target_pokemon)
+            pve_preview = target_info.get("moveset_pve", "") if target_info else ""
+            moveset_hint = f"\n💡 建議配招：{pve_preview}\n（輸入「配招 {target_pokemon}」可查看完整對戰指南）\n" if pve_preview else ""
+
             location_quick_reply = QuickReply(
                 items=[
                     QuickReplyItem(
                         action=LocationAction(label="📍 傳送定位以搜尋5km")
+                    ),
+                    QuickReplyItem(
+                        action=MessageAction(label=f"📊 查{target_pokemon[:6]}配招與打手", text=f"配招 {target_pokemon}")
+                    ),
+                    QuickReplyItem(
+                        action=MessageAction(label="🔥 今日團體戰", text="今日團體戰")
                     )
                 ]
             )
 
             reply_text = (
                 f"🎯 已鎖定搜尋目標：【{target_pokemon}】\n\n"
-                f"請點擊下方按鈕或左下角「＋」發送您的【位置資訊】，"
-                f"我將為您連線 Niantic Campfire 掃描方圓 {settings.DEFAULT_SEARCH_RADIUS_KM} 公里內所有正在進行與即將開蛋的團體戰！"
+                f"📍 尋找團體戰：請點擊下方按鈕或左下角「＋」發送【位置資訊】，"
+                f"我將為您連線 Niantic Campfire 掃描方圓 {settings.DEFAULT_SEARCH_RADIUS_KM} 公里內所有正在進行與即將開蛋的團體戰！\n"
+                f"{moveset_hint}"
             )
 
             res = safe_reply(

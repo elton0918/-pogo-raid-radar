@@ -4,12 +4,13 @@ import re
 from typing import Dict, Any, Optional, List
 
 POKEMON_DATABASE: Dict[str, Dict[str, Any]] = {}
+POKEMON_MOVESETS: Dict[str, Dict[str, Any]] = {}
 POKEMON_NAMES_ZH: List[str] = []
 POKEMON_NAMES_EN: List[str] = []
 EN_TO_ZH_DICT: Dict[str, str] = {}
 
 def _load_database():
-    global POKEMON_DATABASE, POKEMON_NAMES_ZH, POKEMON_NAMES_EN, EN_TO_ZH_DICT
+    global POKEMON_DATABASE, POKEMON_MOVESETS, POKEMON_NAMES_ZH, POKEMON_NAMES_EN, EN_TO_ZH_DICT
     if POKEMON_DATABASE and POKEMON_NAMES_ZH and POKEMON_NAMES_EN:
         return
         
@@ -17,6 +18,11 @@ def _load_database():
     if os.path.exists(db_path):
         with open(db_path, 'r', encoding='utf-8') as f:
             POKEMON_DATABASE = json.load(f)
+
+    movesets_path = os.path.join(os.path.dirname(__file__), 'pokemon_movesets.json')
+    if os.path.exists(movesets_path):
+        with open(movesets_path, 'r', encoding='utf-8') as f:
+            POKEMON_MOVESETS = json.load(f)
             
     names_zh_path = os.path.join(os.path.dirname(__file__), 'pokemon_names_zh.json')
     if os.path.exists(names_zh_path):
@@ -315,17 +321,46 @@ def get_pokemon_info(name: str) -> Optional[Dict[str, Any]]:
     base_cleaned = clean_pokemon_name(name)
     target_name = COMMON_ALIASES.get(base_cleaned, base_cleaned)
     
+    info = None
     # 1. 精確比對資料庫
     if target_name in POKEMON_DATABASE:
-        return POKEMON_DATABASE[target_name]
-    if name in POKEMON_DATABASE:
-        return POKEMON_DATABASE[name]
+        info = dict(POKEMON_DATABASE[target_name])
+    elif name in POKEMON_DATABASE:
+        info = dict(POKEMON_DATABASE[name])
+    else:
+        # 2. 模糊比對資料庫
+        for key, data in POKEMON_DATABASE.items():
+            if key in target_name or target_name in key or key in name or name in key:
+                info = dict(data)
+                break
+
+    if info:
+        # 確保有 dex_id
+        if "dex_id" not in info:
+            raw_n = info.get("name", "")
+            clean_n = clean_pokemon_name(raw_n).split(" ")[0].split("(")[0].strip()
+            if raw_n in POKEMON_NAMES_ZH:
+                info["dex_id"] = POKEMON_NAMES_ZH.index(raw_n) + 1
+            elif clean_n in POKEMON_NAMES_ZH:
+                info["dex_id"] = POKEMON_NAMES_ZH.index(clean_n) + 1
+            elif target_name in POKEMON_NAMES_ZH:
+                info["dex_id"] = POKEMON_NAMES_ZH.index(target_name) + 1
+        dex_id = info.get("dex_id")
         
-    # 2. 模糊比對資料庫
-    for key, data in POKEMON_DATABASE.items():
-        if key in target_name or target_name in key or key in name or name in key:
-            return data
-            
+        # 若資料庫欄位缺少配招資訊，自動由 POKEMON_MOVESETS 補齊
+        if dex_id:
+            moveset_data = POKEMON_MOVESETS.get(str(dex_id), {})
+            if moveset_data:
+                if not info.get("moveset_pve"):
+                    info["moveset_pve"] = moveset_data.get("moveset_pve", "")
+                if not info.get("moveset_pvp"):
+                    info["moveset_pvp"] = moveset_data.get("moveset_pvp", "")
+                if not info.get("fast_moves"):
+                    info["fast_moves"] = moveset_data.get("fast_moves", [])
+                if not info.get("charged_moves"):
+                    info["charged_moves"] = moveset_data.get("charged_moves", [])
+        return info
+
     # 3. 若特化團體戰資料庫沒有，退回至中文名稱表 (支援全部 1025 隻寶可夢)
     base_name = target_name.split(" ")[0].split("(")[0].strip()
     dex_id = None
@@ -352,12 +387,17 @@ def get_pokemon_info(name: str) -> Optional[Dict[str, Any]]:
                 break
                 
     if dex_id:
+        moveset_data = POKEMON_MOVESETS.get(str(dex_id), {})
         return {
             "name": matched_name,
             "dex_id": dex_id,
             "types": ["請參考遊戲內說明"],
             "weaknesses": ["依屬性對應"],
             "counters": [],
+            "moveset_pve": moveset_data.get("moveset_pve", ""),
+            "moveset_pvp": moveset_data.get("moveset_pvp", ""),
+            "fast_moves": moveset_data.get("fast_moves", []),
+            "charged_moves": moveset_data.get("charged_moves", []),
             "iv_100_normal": "請參考遊戲內圖鑑",
             "iv_100_boosted": "請參考遊戲內圖鑑",
             "boosted_weather": []
